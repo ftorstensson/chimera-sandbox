@@ -1,94 +1,118 @@
 "use client";
 
 import { useState } from "react";
-import { generateAppBlueprint, GenerateAppBlueprintOutput, GenerateAppBlueprintInput } from "@/ai/flows/generate-app-blueprint";
-import { reviseAppBlueprint, ReviseAppBlueprintInput, ReviseAppBlueprintOutput } from "@/ai/flows/revise-app-blueprint";
 import { InitialView } from "@/components/vibe-designer/initial-view";
-import { BlueprintView } from "@/components/vibe-designer/blueprint-view";
-import { LoadingView } from "@/components/vibe-designer/loading-view";
 import { useToast } from "@/hooks/use-toast";
+import { ChatView } from "@/components/vibe-designer/chat-view";
+import { BlueprintMessage } from "@/components/vibe-designer/blueprint-message";
 
-type View = "initial" | "loading" | "blueprint";
+// The type for our blueprint from the backend
+type ProjectDocument = {
+  guide: any;
+  insight: any;
+  journey: any;
+  architect: any;
+  ai_companion: any;
+  mvp: any;
+};
+
+// The type for a chat message
+export type Message = {
+  id: string;
+  role: 'user' | 'ai';
+  content: string | React.ReactNode;
+  isGenerating?: boolean;
+};
+
+type View = "initial" | "chat";
 
 export default function Home() {
   const [view, setView] = useState<View>("initial");
-  const [appIdea, setAppIdea] = useState("");
-  const [blueprint, setBlueprint] = useState<GenerateAppBlueprintOutput | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const { toast } = useToast();
 
   const handleGenerate = async (data: { appIdea: string }) => {
-    setView("loading");
-    setAppIdea(data.appIdea);
+    setView("chat");
+
+    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: data.appIdea };
+    const aiLoadingMessage: Message = { id: (Date.now() + 1).toString(), role: 'ai', content: '', isGenerating: true };
+    setMessages([userMessage, aiLoadingMessage]);
+
+    const backendApiUrl = 'https://idx-multi-agent-test-2-76381231-121857917257.australia-southeast1.run.app'; 
 
     try {
-      const result = await generateAppBlueprint({ appIdea: data.appIdea });
-      setBlueprint(result);
-      setView("blueprint");
+      const response = await fetch(backendApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ idea: data.appIdea }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`The AI agency reported an error: ${errorText || response.statusText}`);
+      }
+
+      const result: ProjectDocument = await response.json();
+      
+      const blueprintContent = <BlueprintMessage blueprint={result} />;
+      const aiResponseMessage: Message = { 
+        id: aiLoadingMessage.id, 
+        role: 'ai', 
+        content: blueprintContent,
+        isGenerating: false,
+      };
+      
+      setMessages([userMessage, aiResponseMessage]);
+
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
+      const aiErrorMessage: Message = {
+        id: aiLoadingMessage.id,
+        role: 'ai',
+        content: `Sorry, I ran into an error generating the blueprint. ${errorMessage}`,
+        isGenerating: false,
+      };
+       setMessages([userMessage, aiErrorMessage]);
       toast({
         variant: "destructive",
         title: "Error Generating Blueprint",
         description: errorMessage,
       });
-      setView("initial");
     }
-  };
-
-  const formatBlueprintToString = (bp: GenerateAppBlueprintOutput): string => {
-    return `Core Problem: ${bp.coreProblem}\n\nKey Features: ${bp.keyFeatures}\n\nTarget User: ${bp.targetUser}`;
   };
   
-  const parseBlueprintFromString = (str: string): GenerateAppBlueprintOutput => {
-    const coreProblemMatch = str.match(/Core Problem:\s*([\s\S]*?)(?=Key Features:|$)/i);
-    const keyFeaturesMatch = str.match(/Key Features:\s*([\s\S]*?)(?=Target User:|$)/i);
-    const targetUserMatch = str.match(/Target User:\s*([\s\S]*)/i);
+  const handleSendMessage = async (messageText: string) => {
+    const newUserMessage: Message = { id: Date.now().toString(), role: 'user', content: messageText };
+    setMessages(prev => [...prev, newUserMessage]);
+    
+    const aiLoadingMessageId = (Date.now() + 1).toString();
+    const aiLoadingMessage: Message = { id: aiLoadingMessageId, role: 'ai', content: '', isGenerating: true };
+    setMessages(prev => [...prev, aiLoadingMessage]);
 
-    return {
-      coreProblem: coreProblemMatch ? coreProblemMatch[1].trim() : "Could not parse Core Problem.",
-      keyFeatures: keyFeaturesMatch ? keyFeaturesMatch[1].trim() : "Could not parse Key Features.",
-      targetUser: targetUserMatch ? targetUserMatch[1].trim() : "Could not parse Target User.",
+    await new Promise(res => setTimeout(res, 1500));
+
+    const cannedResponse = "I've received your feedback. The ability to revise the blueprint is coming soon! For now, you can start over to generate a new plan with your refined idea.";
+    const aiResponseMessage: Message = {
+      id: aiLoadingMessageId,
+      role: 'ai',
+      content: cannedResponse,
+      isGenerating: false,
     };
-  }
-
-  const handleRevise = async (data: { feedback: string }) => {
-    if (!blueprint) return;
-    setView("loading");
-
-    const input: ReviseAppBlueprintInput = {
-      initialAppIdea: appIdea,
-      currentBlueprint: formatBlueprintToString(blueprint),
-      userFeedback: data.feedback,
-    };
-
-    try {
-      const result = await reviseAppBlueprint(input);
-      const newBlueprint = parseBlueprintFromString(result.revisedBlueprint);
-      setBlueprint(newBlueprint);
-      setView("blueprint");
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
-      toast({
-        variant: "destructive",
-        title: "Error Revising Blueprint",
-        description: errorMessage,
-      });
-      setView("blueprint");
-    }
+    
+    setMessages(prev => prev.map(m => m.id === aiLoadingMessageId ? aiResponseMessage : m));
   };
 
   const handleStartOver = () => {
     setView("initial");
-    setBlueprint(null);
-    setAppIdea("");
+    setMessages([]);
   };
 
   const renderContent = () => {
     switch (view) {
-      case "loading":
-        return <LoadingView />;
-      case "blueprint":
-        return blueprint && <BlueprintView blueprint={blueprint} appIdea={appIdea} onRevise={handleRevise} onStartOver={handleStartOver} />;
+      case "chat":
+        return <ChatView messages={messages} onSendMessage={handleSendMessage} onStartOver={handleStartOver} />;
       case "initial":
       default:
         return <InitialView onGenerate={handleGenerate} />;
@@ -97,7 +121,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen w-full flex-col items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-3xl space-y-8">
+      <div className="w-full max-w-4xl">
         {renderContent()}
       </div>
     </main>
