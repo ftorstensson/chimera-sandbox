@@ -9,19 +9,10 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { GenerateAppBlueprintInputSchema, GenerateAppBlueprintOutputSchema } from '@/ai/schemas';
+import type { GenerateAppBlueprintInput, GenerateAppBlueprintOutput } from '@/ai/schemas';
 
-const GenerateAppBlueprintInputSchema = z.object({
-  appIdea: z.string().describe('The user inputted idea for an app.'),
-});
-export type GenerateAppBlueprintInput = z.infer<typeof GenerateAppBlueprintInputSchema>;
-
-const GenerateAppBlueprintOutputSchema = z.object({
-  coreProblem: z.string().describe('The core problem that the app solves.'),
-  keyFeatures: z.string().describe('The key features of the app.'),
-  targetUser: z.string().describe('The target user for the app.'),
-});
-export type GenerateAppBlueprintOutput = z.infer<typeof GenerateAppBlueprintOutputSchema>;
+export type { GenerateAppBlueprintInput, GenerateAppBlueprintOutput };
 
 export async function generateAppBlueprint(input: GenerateAppBlueprintInput): Promise<GenerateAppBlueprintOutput> {
   return generateAppBlueprintFlow(input);
