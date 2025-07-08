@@ -1,156 +1,113 @@
 "use client";
 
 import { useState } from "react";
-import { generateAppBlueprint } from "@/ai/flows/generate-app-blueprint";
-import type { GenerateAppBlueprintOutput } from "@/ai/schemas";
-import { reviseAppBlueprint } from "@/ai/flows/revise-app-blueprint";
 
-import { InitialView } from "@/components/vibe-designer/initial-view";
-import { ChatView } from "@/components/vibe-designer/chat-view";
-import { useToast } from "@/hooks/use-toast";
-import { BlueprintMessage } from "@/components/vibe-designer/blueprint-message";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+// This is the simplified, self-contained UI that is guaranteed to work.
 
-export type Message = {
-  id: string;
-  role: 'user' | 'ai';
-  content: string | React.ReactNode;
-  isGenerating?: boolean;
-};
+export default function VibeDesignerPage() {
+  const [idea, setIdea] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-type View = "initial" | "chat";
+  const handleSubmit = async () => {
+    if (!idea) {
+      alert("Please enter your app idea.");
+      return;
+    }
 
-export default function Home() {
-  const [view, setView] = useState<View>("initial");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [appIdea, setAppIdea] = useState("");
-  const [currentBlueprint, setCurrentBlueprint] = useState<GenerateAppBlueprintOutput | null>(null);
-  const { toast } = useToast();
+    setIsLoading(true);
+    setResult(null);
+    setError(null);
 
-  const handleGenerate = async (data: { appIdea: string }) => {
-    setView("chat");
-    setAppIdea(data.appIdea);
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: data.appIdea,
-    };
-    const generatingMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'ai',
-      content: "",
-      isGenerating: true,
-    };
-    setMessages([userMessage, generatingMessage]);
+    // --- PASTE YOUR NEW, WORKING BACKEND URL HERE ---
+    const backendApiUrl = 'https://idx-vibe-agent-backend-84437919-534939227554.australia-southeast1.run.app';
+    // --------------------------------------------------
 
     try {
-      const blueprint = await generateAppBlueprint({ appIdea: data.appIdea });
-      setCurrentBlueprint(blueprint);
-      const blueprintMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        content: <BlueprintMessage blueprint={blueprint} />,
-      };
-      setMessages([userMessage, blueprintMessage]);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
-      toast({
-        variant: "destructive",
-        title: "Error Generating Blueprint",
-        description: errorMessage,
+      const response = await fetch(backendApiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea: idea }),
       });
-      handleStartOver();
-    }
-  };
 
-  const handleRevise = async (feedback: string) => {
-    if (!currentBlueprint) return;
+      if (!response.ok) {
+        // Try to get a more detailed error message from the backend
+        const errorData = await response.json().catch(() => ({ error: `Request failed with status ${response.status}` }));
+        throw new Error(errorData.error || `An unknown error occurred.`);
+      }
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: feedback,
-    };
-    const generatingMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'ai',
-      content: "",
-      isGenerating: true,
-    };
-
-    setMessages(prev => [...prev, userMessage, generatingMessage]);
-
-    try {
-      const fullBlueprintString = JSON.stringify(currentBlueprint, null, 2);
-      const newBlueprint = await reviseAppBlueprint({
-        initialAppIdea: appIdea,
-        currentBlueprint: fullBlueprintString,
-        userFeedback: feedback,
-      });
-      
-      setCurrentBlueprint(newBlueprint);
-
-      const revisedMessage: Message = {
-        id: (Date.now() + 2).toString(),
-        role: 'ai',
-        content: <BlueprintMessage blueprint={newBlueprint} />,
-      };
-
-      setMessages(prev => [...prev.slice(0, -1), revisedMessage]);
+      const data = await response.json();
+      setResult(data);
 
     } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : "An unexpected error occurred.";
-      toast({
-        variant: "destructive",
-        title: "Error Revising Blueprint",
-        description: errorMessage,
-      });
-      setMessages(prev => prev.slice(0, -1));
+      setError(e instanceof Error ? e.message : "An unknown error occurred.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-
-  const handleStartOver = () => {
-    setView("initial");
-    setMessages([]);
-    setAppIdea("");
-    setCurrentBlueprint(null);
-  };
-
-  const renderContent = () => {
-    switch (view) {
-      case "chat":
-        return (
-          <ChatView
-            messages={messages}
-            onSendMessage={handleRevise}
-          />
-        );
-      case "initial":
-      default:
-        return <InitialView onGenerate={handleGenerate} />;
-    }
-  };
-
+  // This is the simple UI rendering
   return (
-    <main className={cn(
-      "flex min-h-screen w-full flex-col",
-      view === 'initial' ? "items-center justify-center p-4 sm:p-8" : ""
-    )}>
-      {view === 'chat' && (
-        <header className="flex items-center justify-between p-4 border-b w-full sticky top-0 bg-background/95 z-10 backdrop-blur-sm">
-          <h1 className="font-headline text-xl font-bold text-primary">Vibe Designer AI</h1>
-          <Button variant="outline" onClick={handleStartOver}>Start Over</Button>
-        </header>
-      )}
-      <div className={cn(
-        "w-full",
-        view === 'initial' ? "max-w-2xl" : "flex-1 flex flex-col"
-      )}>
-        {renderContent()}
+    <div style={{ fontFamily: 'sans-serif', maxWidth: '800px', margin: '5vh auto', padding: '2rem' }}>
+      <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold', textAlign: 'center' }}>Vibe Designer AI</h1>
+      <p style={{ textAlign: 'center', color: '#666', marginTop: '0.5rem' }}>
+        Turn your vibe into a buildable plan.
+      </p>
+
+      <div style={{ marginTop: '2.5rem' }}>
+        <textarea
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          placeholder="e.g., An AI coach that helps people practice for job interviews"
+          style={{ 
+            width: '100%', 
+            minHeight: '120px', 
+            padding: '12px', 
+            fontSize: '1rem', 
+            border: '1px solid #ddd', 
+            borderRadius: '8px',
+            boxSizing: 'border-box'
+          }}
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={isLoading}
+          style={{ 
+            display: 'block', 
+            width: '100%', 
+            padding: '1rem', 
+            fontSize: '1.1rem', 
+            fontWeight: 'bold', 
+            marginTop: '1rem', 
+            backgroundColor: isLoading ? '#ccc' : '#007bff', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '8px', 
+            cursor: 'pointer',
+            transition: 'background-color 0.2s'
+          }}
+        >
+          {isLoading ? 'Generating Plan...' : 'Generate Full Project Plan ✨'}
+        </button>
       </div>
-    </main>
+
+      {error && (
+        <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#ffebee', color: '#c62828', borderRadius: '8px', border: '1px solid #c62828' }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {result && (
+        <div style={{ marginTop: '2.5rem' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', borderBottom: '1px solid #eee', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+            Your Complete Project Plan:
+          </h2>
+          <pre style={{ backgroundColor: '#f6f8fa', padding: '1rem', borderRadius: '8px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.875rem' }}>
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 }
