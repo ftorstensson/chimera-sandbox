@@ -1,44 +1,70 @@
 "use client";
 
 import { useState } from "react";
+import type { ProjectPlan } from "./types";
+import { ConversationDisplay } from "@/components/ConversationDisplay";
 
-// This is the simplified, self-contained UI that is guaranteed to work.
+// Define the steps of our process
+const VIBE_STEPS = [
+  { key: "guide", title: "Shaping the Vision", endpoint: "/guide", buttonText: "Next: Analyze the Market" },
+  { key: "insight", title: "Analyzing the Market", endpoint: "/insight", buttonText: "Next: Design the User Journey" },
+  { key: "journey", title: "Designing the Journey", endpoint: "/journey", buttonText: "Next: Plan the Architecture" },
+  { key: "architect", title: "Planning the Architecture", endpoint: "/architect", buttonText: "Next: Add AI Features" },
+  { key: "ai_companion", title: "Adding AI Features", endpoint: "/ai-companion", buttonText: "Next: Define the MVP" },
+  { key: "mvp", title: "Defining the MVP", endpoint: "/mvp", buttonText: "View Full Plan" },
+];
 
-export default function VibeDesignerPage() {
+const LoadingSpinner = ({ text }: { text: string }) => (
+  <div className="flex justify-center items-center p-8">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+    <p className="ml-4 text-lg">{text}...</p>
+  </div>
+);
+
+export default function HomePage() {
   const [idea, setIdea] = useState("");
+  const [currentStep, setCurrentStep] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [projectDocument, setProjectDocument] = useState<Partial<ProjectPlan>>({});
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
+  // IMPORTANT: This must be the base URL of your deployed backend
+  const backendApiBaseUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app'; 
+
+  const handleStart = () => {
     if (!idea) {
       alert("Please enter your app idea.");
       return;
     }
-
-    setIsLoading(true);
-    setResult(null);
     setError(null);
-
-    // --- PASTE YOUR NEW, WORKING BACKEND URL HERE ---
-    const backendApiUrl = 'https://idx-vibe-agent-backend-84437919-534939227554.australia-southeast1.run.app';
-    // --------------------------------------------------
+    setCurrentStep(0);
+    handleNextStep(0, {});
+  };
+  
+  const handleNextStep = async (stepIndex: number, currentDoc: Partial<ProjectPlan>) => {
+    setIsLoading(true);
+    const step = VIBE_STEPS[stepIndex];
 
     try {
-      const response = await fetch(backendApiUrl, {
+      const endpoint = `${backendApiBaseUrl}${step.endpoint}`;
+      const requestBody = stepIndex === 0 ? { idea } : { context: currentDoc };
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea: idea }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        // Try to get a more detailed error message from the backend
         const errorData = await response.json().catch(() => ({ error: `Request failed with status ${response.status}` }));
         throw new Error(errorData.error || `An unknown error occurred.`);
       }
 
       const data = await response.json();
-      setResult(data);
+      
+      const newProjectDocument = { ...currentDoc, [step.key as keyof ProjectPlan]: data };
+      setProjectDocument(newProjectDocument);
+      setCurrentStep(stepIndex + 1);
 
     } catch (e) {
       setError(e instanceof Error ? e.message : "An unknown error occurred.");
@@ -46,68 +72,77 @@ export default function VibeDesignerPage() {
       setIsLoading(false);
     }
   };
+  
+  const handleReset = () => {
+    setIdea("");
+    setCurrentStep(-1);
+    setProjectDocument({});
+    setError(null);
+  };
 
-  // This is the simple UI rendering
-  return (
-    <div style={{ fontFamily: 'sans-serif', maxWidth: '800px', margin: '5vh auto', padding: '2rem' }}>
-      <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold', textAlign: 'center' }}>Vibe Designer AI</h1>
-      <p style={{ textAlign: 'center', color: '#666', marginTop: '0.5rem' }}>
-        Turn your vibe into a buildable plan.
-      </p>
+  const renderContent = () => {
+    if (currentStep === -1) {
+      return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <label htmlFor="idea-input" className="block text-sm font-medium text-gray-700 mb-1">
+              What's the vibe?
+            </label>
+            <textarea id="idea-input" value={idea} onChange={(e) => setIdea(e.target.value)}
+              placeholder="e.g., An app that uses AI to suggest recipes based on ingredients I have in my fridge."
+              className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+              rows={3}
+            />
+            <button onClick={handleStart} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700">
+              Start Designing
+            </button>
+        </div>
+      );
+    }
 
-      <div style={{ marginTop: '2.5rem' }}>
-        <textarea
-          value={idea}
-          onChange={(e) => setIdea(e.target.value)}
-          placeholder="e.g., An AI coach that helps people practice for job interviews"
-          style={{ 
-            width: '100%', 
-            minHeight: '120px', 
-            padding: '12px', 
-            fontSize: '1rem', 
-            border: '1px solid #ddd', 
-            borderRadius: '8px',
-            boxSizing: 'border-box'
-          }}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={isLoading}
-          style={{ 
-            display: 'block', 
-            width: '100%', 
-            padding: '1rem', 
-            fontSize: '1.1rem', 
-            fontWeight: 'bold', 
-            marginTop: '1rem', 
-            backgroundColor: isLoading ? '#ccc' : '#007bff', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '8px', 
-            cursor: 'pointer',
-            transition: 'background-color 0.2s'
-          }}
-        >
-          {isLoading ? 'Generating Plan...' : 'Generate Full Project Plan ✨'}
-        </button>
+    return (
+      <div>
+        <ConversationDisplay plan={projectDocument} />
+        
+        {isLoading && <LoadingSpinner text={VIBE_STEPS[currentStep]?.title || 'Finalizing'} />}
+
+        {error && (
+            <div className="mt-8 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
+                <p className="font-bold">An Error Occurred</p><p>{error}</p>
+            </div>
+        )}
+
+        {!isLoading && currentStep <= 5 && (
+            <button onClick={() => handleNextStep(currentStep, projectDocument)} className="mt-6 w-full bg-green-600 text-white font-bold py-3 px-4 rounded-md hover:bg-green-700">
+                {VIBE_STEPS[currentStep].buttonText}
+            </button>
+        )}
+        
+        {currentStep > 5 && !isLoading && (
+           <div className="text-center mt-8">
+              <h2 className="text-2xl font-bold">🎉 Your Vibe is Fully Designed!</h2>
+              <button onClick={handleReset} className="mt-4 bg-gray-600 text-white font-bold py-2 px-6 rounded-md hover:bg-gray-700">
+                  Start a New Vibe
+              </button>
+           </div>
+        )}
       </div>
+    );
+  };
 
-      {error && (
-        <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: '#ffebee', color: '#c62828', borderRadius: '8px', border: '1px solid #c62828' }}>
-          <strong>Error:</strong> {error}
-        </div>
-      )}
-
-      {result && (
-        <div style={{ marginTop: '2.5rem' }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', borderBottom: '1px solid #eee', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-            Your Complete Project Plan:
-          </h2>
-          <pre style={{ backgroundColor: '#f6f8fa', padding: '1rem', borderRadius: '8px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.875rem' }}>
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      )}
+  return (
+    <div className="flex flex-col items-center min-h-screen bg-gray-50 text-gray-800">
+      <main className="container mx-auto p-4 md:p-8 w-full max-w-4xl">
+        <header className="text-center my-8">
+          <h1 className="text-5xl font-bold tracking-tight">Vibe Designer AI</h1>
+          <p className="text-lg text-gray-600 mt-2">
+            {currentStep === -1 
+              ? "Turn your spark of an idea into a complete project plan."
+              : `Step ${currentStep + 1}: ${VIBE_STEPS[currentStep]?.title || 'Complete!'}`
+            }
+          </p>
+        </header>
+        {renderContent()}
+      </main>
     </div>
   );
 }
