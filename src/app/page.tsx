@@ -1,53 +1,57 @@
+// src/app/page.tsx - NEW CHAT-BASED VERSION
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ProjectPlan } from "./types";
-import { ConversationDisplay } from "@/components/ConversationDisplay";
+import { UserMessage } from "@/components/UserMessage";
+import { AssistantMessage } from "@/components/AssistantMessage";
+import { AgentOutputCard } from "@/components/AgentOutputCard";
+// We need to re-import the UI components for the input
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
-// Define the steps of our process
+// Define a type for our chat messages
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: React.ReactNode; // Can be a string or a full component
+}
+
+// Same steps as before
 const VIBE_STEPS = [
-  { key: "guide", title: "Shaping the Vision", endpoint: "/guide", buttonText: "Next: Analyze the Market" },
-  { key: "insight", title: "Analyzing the Market", endpoint: "/insight", buttonText: "Next: Design the User Journey" },
-  { key: "journey", title: "Designing the Journey", endpoint: "/journey", buttonText: "Next: Plan the Architecture" },
-  { key: "architect", title: "Planning the Architecture", endpoint: "/architect", buttonText: "Next: Add AI Features" },
-  { key: "ai_companion", title: "Adding AI Features", endpoint: "/ai-companion", buttonText: "Next: Define the MVP" },
-  { key: "mvp", title: "Defining the MVP", endpoint: "/mvp", buttonText: "View Full Plan" },
+    { key: "guide", title: "🛸 The Guide", description: "Let's start with the big picture..." },
+    { key: "insight", title: "🔍 The Insight Agent", description: "Next, who are we building this for?" },
+    // ... add the rest of the agents here
 ];
 
-const LoadingSpinner = ({ text }: { text: string }) => (
-  <div className="flex justify-center items-center p-8">
-    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-    <p className="ml-4 text-lg">{text}...</p>
-  </div>
-);
 
 export default function HomePage() {
-  const [idea, setIdea] = useState("");
-  const [currentStep, setCurrentStep] = useState(-1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [currentInput, setCurrentInput] = useState("");
+  const [currentStep, setCurrentStep] = useState(0);
   const [projectDocument, setProjectDocument] = useState<Partial<ProjectPlan>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // IMPORTANT: This must be the base URL of your deployed backend
-  const backendApiBaseUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app'; 
+  const backendApiBaseUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app'; // Replace with your URL
 
-  const handleStart = () => {
-    if (!idea) {
-      alert("Please enter your app idea.");
-      return;
-    }
-    setError(null);
-    setCurrentStep(0);
-    handleNextStep(0, {});
-  };
-  
-  const handleNextStep = async (stepIndex: number, currentDoc: Partial<ProjectPlan>) => {
+  const handleSubmit = async (input: string) => {
+    if (!input) return;
+
+    // Add the user's message to the chat history
+    setMessages(prev => [...prev, { role: 'user', content: input }]);
+    setCurrentInput("");
     setIsLoading(true);
-    const step = VIBE_STEPS[stepIndex];
 
+    const step = VIBE_STEPS[currentStep];
+
+    // Build the context, including ALL previous feedback from the chat history
+    const context = {
+      ...projectDocument,
+      user_feedback_for_next_step: input
+    };
+    
     try {
-      const endpoint = `${backendApiBaseUrl}${step.endpoint}`;
-      const requestBody = stepIndex === 0 ? { idea } : { context: currentDoc };
+      const endpoint = `${backendApiBaseUrl}/${step.key}`;
+      const requestBody = currentStep === 0 ? { idea: input } : { context };
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -55,94 +59,63 @@ export default function HomePage() {
         body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: `Request failed with status ${response.status}` }));
-        throw new Error(errorData.error || `An unknown error occurred.`);
-      }
+      if (!response.ok) throw new Error("API call failed");
 
       const data = await response.json();
       
-      const newProjectDocument = { ...currentDoc, [step.key as keyof ProjectPlan]: data };
+      const newProjectDocument = { ...projectDocument, [step.key]: data };
       setProjectDocument(newProjectDocument);
-      setCurrentStep(stepIndex + 1);
 
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "An unknown error occurred.");
+      // Add the AI's response to the chat history
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: <AgentOutputCard title={step.title} description={step.description}>
+                   {/* We will build specific renderers for each agent's output later */}
+                   <pre>{JSON.stringify(data, null, 2)}</pre> 
+                 </AgentOutputCard>
+      }]);
+
+      setCurrentStep(prev => prev + 1);
+
+    } catch (error) {
+      setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, an error occurred." }]);
     } finally {
       setIsLoading(false);
     }
   };
-  
-  const handleReset = () => {
-    setIdea("");
-    setCurrentStep(-1);
-    setProjectDocument({});
-    setError(null);
-  };
-
-  const renderContent = () => {
-    if (currentStep === -1) {
-      return (
-        <div className="bg-white p-6 rounded-lg shadow-md">
-            <label htmlFor="idea-input" className="block text-sm font-medium text-gray-700 mb-1">
-              What's the vibe?
-            </label>
-            <textarea id="idea-input" value={idea} onChange={(e) => setIdea(e.target.value)}
-              placeholder="e.g., An app that uses AI to suggest recipes based on ingredients I have in my fridge."
-              className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-              rows={3}
-            />
-            <button onClick={handleStart} className="mt-4 w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700">
-              Start Designing
-            </button>
-        </div>
-      );
-    }
-
-    return (
-      <div>
-        <ConversationDisplay plan={projectDocument} />
-        
-        {isLoading && <LoadingSpinner text={VIBE_STEPS[currentStep]?.title || 'Finalizing'} />}
-
-        {error && (
-            <div className="mt-8 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
-                <p className="font-bold">An Error Occurred</p><p>{error}</p>
-            </div>
-        )}
-
-        {!isLoading && currentStep <= 5 && (
-            <button onClick={() => handleNextStep(currentStep, projectDocument)} className="mt-6 w-full bg-green-600 text-white font-bold py-3 px-4 rounded-md hover:bg-green-700">
-                {VIBE_STEPS[currentStep].buttonText}
-            </button>
-        )}
-        
-        {currentStep > 5 && !isLoading && (
-           <div className="text-center mt-8">
-              <h2 className="text-2xl font-bold">🎉 Your Vibe is Fully Designed!</h2>
-              <button onClick={handleReset} className="mt-4 bg-gray-600 text-white font-bold py-2 px-6 rounded-md hover:bg-gray-700">
-                  Start a New Vibe
-              </button>
-           </div>
-        )}
-      </div>
-    );
-  };
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-gray-50 text-gray-800">
-      <main className="container mx-auto p-4 md:p-8 w-full max-w-4xl">
-        <header className="text-center my-8">
-          <h1 className="text-5xl font-bold tracking-tight">Vibe Designer AI</h1>
-          <p className="text-lg text-gray-600 mt-2">
-            {currentStep === -1 
-              ? "Turn your spark of an idea into a complete project plan."
-              : `Step ${currentStep + 1}: ${VIBE_STEPS[currentStep]?.title || 'Complete!'}`
-            }
-          </p>
+    <div className="flex flex-col h-screen max-w-4xl mx-auto">
+        <header className="text-center my-4">
+            <h1 className="text-4xl font-bold">Vibe Designer AI</h1>
         </header>
-        {renderContent()}
-      </main>
+        
+        <div className="flex-grow overflow-y-auto p-4 space-y-4">
+            {messages.map((msg, index) => (
+                msg.role === 'user'
+                    ? <UserMessage key={index}>{msg.content}</UserMessage>
+                    : <AssistantMessage key={index}>{msg.content}</AssistantMessage>
+            ))}
+            {isLoading && <AssistantMessage>Thinking...</AssistantMessage>}
+        </div>
+
+        <div className="p-4 border-t">
+            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(currentInput); }}>
+                <div className="flex items-center space-x-2">
+                    <Textarea
+                        value={currentInput}
+                        onChange={(e) => setCurrentInput(e.target.value)}
+                        placeholder={messages.length === 0 ? "Describe your app idea..." : "Any refinements? Or just press Enter to continue..."}
+                        className="flex-grow"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(currentInput); } }}
+                        disabled={isLoading || currentStep >= VIBE_STEPS.length}
+                    />
+                    <Button type="submit" disabled={isLoading || currentStep >= VIBE_STEPS.length}>
+                        Send
+                    </Button>
+                </div>
+            </form>
+        </div>
     </div>
   );
 }
