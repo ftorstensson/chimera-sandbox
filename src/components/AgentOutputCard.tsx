@@ -1,16 +1,11 @@
-// src/components/AgentOutputCard.tsx
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+// src/components/AgentOutputCard.tsx - CORRECTED
+import React from 'react';
 
-export function AgentOutputCard({ title, description, children }: { title: string, description: string, children: React.ReactNode }) {
+export default function AgentOutputCard({ title, children }: { title: string, children: React.ReactNode }) {
   return (
-    <Card className="animate-in fade-in-50">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {children}
-      </CardContent>
-    </Card>
+    <div className="space-y-2">
+      <p className="font-semibold text-gray-900 whitespace-pre-wrap">{title}</p>
+      {children}
+    </div>
   );
 }
