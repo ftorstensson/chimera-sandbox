@@ -1,23 +1,22 @@
+// src/components/GuideOutputDisplay.tsx
+
 import type { GuideOutput } from '@/app/types';
-import { Badge } from "@/components/ui/badge";
 
 export default function GuideOutputDisplay({ data }: { data: GuideOutput }) {
+  const outputParts = [];
+
+  outputParts.push(`The Core Problem: ${data.ProblemSummary}`);
+  outputParts.push(`The User Story: "${data.UserStory}"`);
+  outputParts.push(`Dream Outcome: ${data.DreamOutcome}`);
+  outputParts.push(`Hero Experience: ${data.HeroExperienceNarrative}`);
+
+  if (data.OptionalAppAnalogues && data.OptionalAppAnalogues.length > 0) {
+    outputParts.push(`Similar Apps: ${data.OptionalAppAnalogues.join(', ')}`);
+  }
+
   return (
-    <div className="space-y-4 text-gray-700 mt-4 p-4 bg-gray-50 rounded-lg border">
-      <div>
-        <h4 className="font-semibold text-gray-900">The Core Problem</h4>
-        <p>{data.ProblemSummary}</p>
-      </div>
-      <div>
-        <h4 className="font-semibold text-gray-900">The User Story</h4>
-        <blockquote className="border-l-2 pl-3 italic">"{data.UserStory}"</blockquote>
-      </div>
-       <div>
-        <h4 className="font-semibold text-gray-900">Similar Apps</h4>
-        <div className="flex flex-wrap gap-2 mt-1">
-          {data.OptionalAppAnalogues?.map(analogue => <Badge key={analogue} variant="secondary">{analogue}</Badge>)}
-        </div>
-      </div>
+    <div className="text-sm">
+      {outputParts.join('\n\n')}
     </div>
   );
 }
