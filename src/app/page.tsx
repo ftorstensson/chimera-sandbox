@@ -11,6 +11,7 @@ import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import GuideOutputDisplay from "@/components/GuideOutputDisplay";
 import InsightOutputDisplay from "@/components/InsightOutputDisplay";
+import JourneyOutputDisplay from "@/components/JourneyOutputDisplay"; // <-- 1. IMPORT a new component
 // We will add more display components here later
 
 // This defines the type for a single chat message in our state
@@ -33,7 +34,8 @@ interface ChatHistoryItem {
 const componentMap: { [key: string]: React.ComponentType<{ data: any }> } = {
   guide_agent: GuideOutputDisplay,
   insight_agent: InsightOutputDisplay,
-  // We will add 'journey', 'architect', etc. here later
+  journey_agent: JourneyOutputDisplay, // <-- 2. REGISTER the new component
+  // We will add 'architect', etc. here later
 };
 
 export default function HomePage() {

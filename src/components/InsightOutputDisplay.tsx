@@ -1,23 +1,33 @@
-import type { InsightOutput, Persona } from '@/app/types';
-import { ListRenderer } from './ListRenderer';
+// src/components/InsightOutputDisplay.tsx
 
-const PersonaCard = ({ persona }: { persona: Persona }) => (
-  <div className="mb-3 p-3 border rounded-lg bg-slate-50/80">
-      <p className="font-bold text-slate-800">{persona.name} ({persona.role})</p>
-      <p className="text-sm text-slate-600"><span className="font-semibold">Goals:</span> {persona.goals?.join(', ')}</p>
-      <p className="text-sm text-slate-600"><span className="font-semibold">Pains:</span> {persona.pains?.join(', ')}</p>
-  </div>
-);
+import type { InsightOutput } from '@/app/types';
+import ListRenderer from './ListRenderer';
 
 export default function InsightOutputDisplay({ data }: { data: InsightOutput }) {
+  if (!data) {
+    return null;
+  }
+
   return (
-    <div className="space-y-4 text-gray-700 mt-4 p-4 bg-gray-50 rounded-lg border">
-      <p>{data.InsightSummary}</p>
-      <div>
-        <h4 className="font-semibold text-gray-900 mb-2">Potential User Personas:</h4>
-        {data.Personas?.map((p, i) => <PersonaCard key={i} persona={p} />)}
-      </div>
-      <ListRenderer title="Key Jobs To Be Done" items={data.JobsToBeDone} />
+    <div className="space-y-2">
+      {data.CompetitorLandscape && (
+        <div>
+          <p className="font-semibold text-gray-800 mb-1">Competitor Landscape:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            {data.CompetitorLandscape.map((competitor, index) => (
+              <li key={index}>
+                <strong>{competitor.name}:</strong> {competitor.description}
+                {competitor.url && (
+                  <a href={competitor.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-2">
+                    [Visit]
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {data.InsightSummary && <p><strong>Summary:</strong> {data.InsightSummary}</p>}
     </div>
   );
 }
