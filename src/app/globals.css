@@ -83,3 +83,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+  This is the v9.3 layout fix. It tells the browser's root elements
+  to use the full height of the screen, which is the foundation for
+  our sticky layout.
+*/
+html, body, #__next {
+  height: 100%;
+}
