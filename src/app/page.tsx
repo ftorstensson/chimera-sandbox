@@ -1,36 +1,28 @@
 // src/app/page.tsx
-// v9.6 - The Final "Full Page Scroll" UI Polish
+// v11.0 - The PROVEN Professional Layout
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Menu, Compass, Code, MessageSquare, Plus } from 'lucide-react';
+import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool';
-  content: string | null;
-  agent_used?: string;
-  structured_data?: any;
-}
-
-interface ChatHistoryItem {
-  chatId: string;
-  title: string;
-}
-
+interface ChatMessage { role: 'user' | 'assistant' | 'tool'; content: string | null; agent_used?: string; structured_data?: any; }
+interface ChatHistoryItem { chatId: string; title: string; }
 const agentList = ['concept_crafter', 'guide_agent', 'insight_agent'];
 
 // ==============================================================================
 //  WELCOME SCREEN COMPONENT
 // ==============================================================================
 const WelcomeScreen = () => (
-  // This div ensures the welcome screen also respects the container's height
   <div className="flex flex-col items-center justify-center h-full text-center pb-24">
     <h1 className="text-4xl font-bold text-gray-800 dark:text-gray-200">Hello, I'm Vibe Designer</h1>
     <p className="mt-2 text-lg text-gray-500 dark:text-gray-400">Your creative partner for designing new applications.</p>
@@ -53,6 +45,10 @@ export default function HomePage() {
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [forcedAgent, setForcedAgent] = useState<string | "none">("none");
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
+  const [newTitle, setNewTitle] = useState("");
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -101,8 +97,7 @@ export default function HomePage() {
     setCurrentInput("");
     try {
       const response = await fetch(`${backendApiUrl}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chatId: currentChatId, message: effectiveInput, force_tool_name: forcedAgent }),
       });
       const data = await response.json();
@@ -120,94 +115,107 @@ export default function HomePage() {
       setForcedAgent("none");
     }
   };
-  
-  useEffect(() => {
-    bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
-  // --- v9.6 JSX RENDER (FULL PAGE SCROLL LAYOUT) ---
+  const handleRename = async () => {
+    if (!chatToEdit || !newTitle.trim()) return;
+    try {
+      await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}/rename`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_title: newTitle }),
+      });
+      await fetchChatHistory();
+      setIsRenameDialogOpen(false);
+      setNewTitle("");
+    } catch (error) { console.error("Failed to rename chat:", error); }
+  };
+
+  const handleDelete = async () => {
+    if (!chatToEdit) return;
+    try {
+      await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}`, { method: "DELETE" });
+      await fetchChatHistory();
+      if (currentChatId === chatToEdit.chatId) { handleNewChat(); }
+      setIsDeleteDialogOpen(false);
+    } catch (error) { console.error("Failed to delete chat:", error); }
+  };
+  
+  useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
   return (
     <div className="flex h-screen w-full bg-gray-100 dark:bg-[#131314] text-gray-900 dark:text-gray-100">
       
       <aside className={`flex flex-col flex-shrink-0 bg-[#1e1f20] text-white transition-all duration-300 ${isSidebarOpen ? 'w-72' : 'w-0'}`}>
-        <div className="p-2 flex-shrink-0">
-          <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button>
-        </div>
+        <div className="p-2 flex-shrink-0"><Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button></div>
         <div className="flex-grow overflow-y-auto px-2">
           <p className="px-3 py-2 text-sm font-medium text-gray-400">Recent</p>
           <nav className="space-y-1">
             {chatHistory.map(chat => (
-              <a key={chat.chatId} href="#" onClick={(e) => { e.preventDefault(); loadChatHistory(chat.chatId); }}
-                 className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium truncate ${currentChatId === chat.chatId ? 'bg-[#3c4655] text-white' : 'text-gray-300 hover:bg-[#2d2e30]'}`}>
-                <MessageSquare className="h-4 w-4" />{chat.title}
-              </a>
+              <div key={chat.chatId} className="group flex items-center justify-between rounded-md hover:bg-[#2d2e30]">
+                <a href="#" onClick={(e) => { e.preventDefault(); loadChatHistory(chat.chatId); }}
+                   className={`flex-grow flex items-center gap-2 px-3 py-2 text-sm font-medium truncate ${currentChatId === chat.chatId ? 'text-white' : 'text-gray-300'}`}>
+                  <MessageSquare className="h-4 w-4 flex-shrink-0" />{chat.title}
+                </a>
+                <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 opacity-0 group-hover:opacity-100"><MoreHorizontal size={16}/></Button></DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => { setChatToEdit(chat); setNewTitle(chat.title); setIsRenameDialogOpen(true); }}><Edit className="mr-2 h-4 w-4"/>Rename</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setChatToEdit(chat); setIsDeleteDialogOpen(true); }} className="text-red-500"><Trash2 className="mr-2 h-4 w-4"/>Delete</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))}
           </nav>
         </div>
       </aside>
 
-      {/* ===== MAIN SCROLLING CONTAINER (Correct) ===== */}
-      <main className="flex flex-1 flex-col h-full overflow-y-auto">
+      {/* ===== THIS IS OUR PROVEN LAYOUT STRUCTURE ===== */}
+      <main className="flex flex-1 flex-col h-full bg-white dark:bg-[#131314]">
         
-        {/* === STICKY HEADER (Correct) === */}
-        <header className="sticky top-0 z-10 flex items-center p-2 flex-shrink-0 border-b dark:border-gray-700 bg-white/80 dark:bg-[#131314]/80 backdrop-blur-sm">
+        <header className="flex items-center p-2 flex-shrink-0 border-b dark:border-gray-700">
           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mr-2 text-gray-500"><Menu size={24} /></Button>
           <h1 className="text-xl font-semibold">Vibe Designer AI</h1>
         </header>
 
-        {/* This container centers the chat content and handles its max-width */}
-        <div className="w-full max-w-3xl mx-auto flex-grow">
-          {messages.length === 0 && !isLoading ? (
-            <WelcomeScreen />
-          ) : (
-            <div className="p-6 space-y-6">
-              {messages.map((msg, index) => {
-                if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
-                if (msg.role === 'assistant' && msg.content) {
-                  return (
-                    <AssistantMessage key={index}>
-                      {msg.content}
-                      {msg.agent_used && msg.structured_data && (
-                        <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />
-                      )}
-                    </AssistantMessage>
-                  );
-                }
-                return null;
-              })}
-              {isLoading && messages.length > 0 && (
-                  <div className="flex justify-start">
-                    <div className="bg-gray-200 dark:bg-gray-700 p-4 rounded-2xl rounded-bl-none shadow-sm animate-pulse">...thinking</div>
-                  </div>
-              )}
-              {/* This empty div is a reference point to scroll to the bottom */}
-              <div ref={bottomOfChatRef}></div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="w-full max-w-3xl mx-auto">
+                {messages.length === 0 && !isLoading ? (
+                    <WelcomeScreen />
+                ) : (
+                    messages.map((msg, index) => {
+                        if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
+                        if (msg.role === 'assistant' && msg.content) {
+                            return (
+                            <AssistantMessage key={index}>{msg.content}
+                                {msg.agent_used && msg.structured_data && <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />}
+                            </AssistantMessage>
+                            );
+                        }
+                        return null;
+                    })
+                )}
+                {isLoading && messages.length > 0 && <div className="flex justify-start"><div className="bg-gray-200 dark:bg-gray-700 p-4 rounded-2xl rounded-bl-none shadow-sm animate-pulse">...thinking</div></div>}
+                <div ref={bottomOfChatRef}></div>
             </div>
-          )}
         </div>
-        
-        {/* === STICKY FOOTER (Correct) === */}
-        <div className="sticky bottom-0 z-10 flex-shrink-0 bg-white/80 dark:bg-[#131314]/80 backdrop-blur-sm">
-           <div className="p-4 border-t border-gray-200 dark:border-gray-700 w-full max-w-3xl mx-auto">
-            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(currentInput); }}>
-              <div className="flex items-end space-x-2">
-                <Textarea value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} placeholder="Describe your app idea..." className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-gray-700" rows={1}/>
-                <div className="flex flex-col space-y-1">
-                    <label className="text-xs text-gray-500 dark:text-gray-400">Debug:</label>
-                    <Select onValueChange={(value) => setForcedAgent(value as string)} value={forcedAgent || "none"}>
-                      <SelectTrigger className="w-[180px] h-10 bg-white dark:bg-gray-700"><SelectValue placeholder="Auto" /></SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-gray-700">
-                        <SelectItem value="none">Auto</SelectItem>
-                        {agentList.map(agent => <SelectItem key={agent} value={agent}>{agent}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                </div>
-                <Button type="submit" className="rounded-lg h-10 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isLoading}>Send</Button>
-              </div>
-            </form>
-          </div>
+
+        <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="w-full max-w-3xl mx-auto">
+                <form onSubmit={(e) => { e.preventDefault(); handleSubmit(currentInput); }}>
+                    <div className="flex items-end space-x-2">
+                    <Textarea value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} placeholder="Describe your app idea..." className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-gray-700" rows={1}/>
+                    <div className="flex flex-col space-y-1"><label className="text-xs text-gray-500 dark:text-gray-400">Debug:</label><Select onValueChange={(value) => setForcedAgent(value as string)} value={forcedAgent || "none"}><SelectTrigger className="w-[180px] h-10 bg-white dark:bg-gray-700"><SelectValue placeholder="Auto" /></SelectTrigger><SelectContent className="bg-white dark:bg-gray-700"><SelectItem value="none">Auto</SelectItem>{agentList.map(agent => <SelectItem key={agent} value={agent}>{agent}</SelectItem>)}</SelectContent></Select></div>
+                    <Button type="submit" className="rounded-lg h-10 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isLoading}>Send</Button>
+                    </div>
+                </form>
+            </div>
         </div>
       </main>
+
+      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
+        <DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent>
+      </Dialog>
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent>
+      </Dialog>
     </div>
   );
 }
