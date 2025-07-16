@@ -1,23 +1,24 @@
 // src/app/page.tsx
-// v12.0 - Add "Manage Agents" Button
+// v12.1 - Implement Agent Manager Dialog
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-// 1. IMPORT NEW ICON
 import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2, Users } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 interface ChatMessage { role: 'user' | 'assistant' | 'tool'; content: string | null; agent_used?: string; structured_data?: any; }
 interface ChatHistoryItem { chatId: string; title: string; }
+// 1. ADD TYPE DEFINITION FOR AN AGENT
+interface Agent { agentId: string; name: string; system_prompt: string; }
 const agentList = ['concept_crafter', 'guide_agent', 'insight_agent'];
 
 // ==============================================================================
@@ -50,9 +51,9 @@ export default function HomePage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
   const [newTitle, setNewTitle] = useState("");
-  // 2. ADD STATE FOR AGENT MANAGEMENT DIALOG
   const [isAgentManagerOpen, setIsAgentManagerOpen] = useState(false);
-
+  // 2. ADD STATE TO STORE THE LIST OF AGENTS
+  const [agents, setAgents] = useState<Agent[]>([]);
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -143,11 +144,19 @@ export default function HomePage() {
     } catch (error) { console.error("Failed to delete chat:", error); }
   };
 
-  // 3. ADD HANDLER FOR THE NEW BUTTON
-  const handleManageAgents = () => {
+  // 3. UPDATE HANDLER TO FETCH AGENTS AND OPEN DIALOG
+  const handleManageAgents = async () => {
     console.log("Opening Agent Manager...");
-    // We will build this out later. For now, it just logs to the console.
-    // setIsAgentManagerOpen(true); 
+    try {
+      const response = await fetch(`${backendApiUrl}/agents`);
+      if (!response.ok) throw new Error("Failed to fetch agents");
+      const agentData: Agent[] = await response.json();
+      setAgents(agentData);
+      setIsAgentManagerOpen(true);
+    } catch (error) {
+      console.error("Failed to fetch agents:", error);
+      // Optionally, show an error message to the user
+    }
   };
   
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -158,7 +167,6 @@ export default function HomePage() {
       <aside className={`flex flex-col flex-shrink-0 bg-[#1e1f20] text-white transition-all duration-300 ${isSidebarOpen ? 'w-72' : 'w-0'}`}>
         <div className="p-2 flex-shrink-0 border-b border-gray-700/50 pb-2 mb-2">
             <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button>
-            {/* 4. ADD THE NEW "MANAGE AGENTS" BUTTON */}
             <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleManageAgents}><Users /> Manage Agents</Button>
         </div>
         <div className="flex-grow overflow-y-auto px-2">
@@ -225,11 +233,36 @@ export default function HomePage() {
         </div>
       </main>
 
+      {/* --- DIALOGS --- */}
+
       <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent>
       </Dialog>
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent>
+      </Dialog>
+
+      {/* 4. ADD THE NEW AGENT MANAGER DIALOG */}
+      <Dialog open={isAgentManagerOpen} onOpenChange={setIsAgentManagerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Agent Manager</DialogTitle>
+            <DialogDescription>
+              Here you can view and edit the system prompts for your team of AI agents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto p-2">
+            {agents.map((agent) => (
+              <div key={agent.agentId} className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                <h3 className="text-lg font-semibold">{agent.name !== "Unnamed Agent" ? agent.name : agent.agentId}</h3>
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAgentManagerOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );
