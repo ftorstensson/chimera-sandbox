@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v12.3 - Wire Up Save Agent Functionality
+// v13.0.1 - Fix: Implement Agent Renaming UI (Corrected)
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -55,6 +55,8 @@ export default function HomePage() {
   const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
   const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
   const [editedPrompt, setEditedPrompt] = useState("");
+  const [renamingAgentId, setRenamingAgentId] = useState<string | null>(null);
+  const [newAgentName, setNewAgentName] = useState("");
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -151,7 +153,6 @@ export default function HomePage() {
       if (!response.ok) throw new Error("Failed to fetch agents");
       const agentData: Agent[] = await response.json();
       setAgents(agentData);
-      return agentData;
     } catch (error) {
       console.error("Failed to fetch agents:", error);
     }
@@ -177,11 +178,28 @@ export default function HomePage() {
             body: JSON.stringify({ system_prompt: editedPrompt }),
         });
         setIsEditAgentOpen(false);
-        // Refresh the agent list to show the updated prompt
         await fetchAgents(); 
     } catch (error) {
-        console.error("Failed to save agent:", error);
-        // Optionally, show an error to the user
+        console.error("Failed to save agent prompt:", error);
+    }
+  };
+  
+  const handleRenameAgent = async (agentId: string) => {
+    if (!newAgentName.trim()) {
+        setRenamingAgentId(null);
+        return;
+    }
+    try {
+        await fetch(`${backendApiUrl}/agents/${agentId}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: newAgentName }),
+        });
+        await fetchAgents();
+    } catch (error) {
+        console.error("Failed to rename agent:", error);
+    } finally {
+        setRenamingAgentId(null);
     }
   };
   
@@ -257,23 +275,42 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* --- DIALOGS --- */}
+      {/* FIX: Restore all dialogs */}
       <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}><DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}><DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent></Dialog>
-
-      <Dialog open={isAgentManagerOpen} onOpenChange={setIsAgentManagerOpen}>
+      
+      <Dialog open={isAgentManagerOpen} onOpenChange={(isOpen) => { if (!isOpen) setRenamingAgentId(null); setIsAgentManagerOpen(isOpen); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Agent Manager</DialogTitle>
             <DialogDescription>
-              Here you can view and edit the system prompts for your team of AI agents.
+              Click on an agent's name to rename it. Use the edit button to change its prompt.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto p-2">
             {agents.map((agent) => (
               <div key={agent.agentId} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 dark:bg-gray-800/50">
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-semibold">{agent.name !== "Unnamed Agent" ? agent.name : agent.agentId}</h3>
+                  {renamingAgentId === agent.agentId ? (
+                    <Input
+                      defaultValue={agent.name}
+                      onChange={(e) => setNewAgentName(e.target.value)}
+                      onBlur={() => handleRenameAgent(agent.agentId)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleRenameAgent(agent.agentId); }}
+                      autoFocus
+                      className="text-lg font-semibold"
+                    />
+                  ) : (
+                    <h3
+                      className="text-lg font-semibold cursor-pointer"
+                      onClick={() => {
+                        setRenamingAgentId(agent.agentId);
+                        setNewAgentName(agent.name);
+                      }}
+                    >
+                      {agent.name}
+                    </h3>
+                  )}
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
                 </div>
                 <Button variant="outline" size="icon" className="ml-4 flex-shrink-0" onClick={() => handleEditAgent(agent)}>
