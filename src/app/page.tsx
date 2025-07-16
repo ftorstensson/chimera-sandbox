@@ -1,22 +1,23 @@
 // src/app/page.tsx
-// v11.0 - The PROVEN Professional Layout
+// v12.3 - Wire Up Save Agent Functionality
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2, Users, FilePenLine } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 interface ChatMessage { role: 'user' | 'assistant' | 'tool'; content: string | null; agent_used?: string; structured_data?: any; }
 interface ChatHistoryItem { chatId: string; title: string; }
+interface Agent { agentId: string; name: string; system_prompt: string; }
 const agentList = ['concept_crafter', 'guide_agent', 'insight_agent'];
 
 // ==============================================================================
@@ -49,6 +50,11 @@ export default function HomePage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [isAgentManagerOpen, setIsAgentManagerOpen] = useState(false);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
+  const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
+  const [editedPrompt, setEditedPrompt] = useState("");
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -139,13 +145,56 @@ export default function HomePage() {
     } catch (error) { console.error("Failed to delete chat:", error); }
   };
   
+  const fetchAgents = async () => {
+    try {
+      const response = await fetch(`${backendApiUrl}/agents`);
+      if (!response.ok) throw new Error("Failed to fetch agents");
+      const agentData: Agent[] = await response.json();
+      setAgents(agentData);
+      return agentData;
+    } catch (error) {
+      console.error("Failed to fetch agents:", error);
+    }
+  };
+
+  const handleManageAgents = async () => {
+    await fetchAgents();
+    setIsAgentManagerOpen(true);
+  };
+
+  const handleEditAgent = (agent: Agent) => {
+    setCurrentAgent(agent);
+    setEditedPrompt(agent.system_prompt);
+    setIsEditAgentOpen(true);
+  };
+  
+  const handleSaveAgent = async () => {
+    if (!currentAgent) return;
+    try {
+        await fetch(`${backendApiUrl}/agents/${currentAgent.agentId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ system_prompt: editedPrompt }),
+        });
+        setIsEditAgentOpen(false);
+        // Refresh the agent list to show the updated prompt
+        await fetchAgents(); 
+    } catch (error) {
+        console.error("Failed to save agent:", error);
+        // Optionally, show an error to the user
+    }
+  };
+  
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   return (
     <div className="flex h-screen w-full bg-gray-100 dark:bg-[#131314] text-gray-900 dark:text-gray-100">
       
       <aside className={`flex flex-col flex-shrink-0 bg-[#1e1f20] text-white transition-all duration-300 ${isSidebarOpen ? 'w-72' : 'w-0'}`}>
-        <div className="p-2 flex-shrink-0"><Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button></div>
+        <div className="p-2 flex-shrink-0 border-b border-gray-700/50 pb-2 mb-2">
+            <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button>
+            <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleManageAgents}><Users /> Manage Agents</Button>
+        </div>
         <div className="flex-grow overflow-y-auto px-2">
           <p className="px-3 py-2 text-sm font-medium text-gray-400">Recent</p>
           <nav className="space-y-1">
@@ -167,9 +216,7 @@ export default function HomePage() {
         </div>
       </aside>
 
-      {/* ===== THIS IS OUR PROVEN LAYOUT STRUCTURE ===== */}
       <main className="flex flex-1 flex-col h-full bg-white dark:bg-[#131314]">
-        
         <header className="flex items-center p-2 flex-shrink-0 border-b dark:border-gray-700">
           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mr-2 text-gray-500"><Menu size={24} /></Button>
           <h1 className="text-xl font-semibold">Vibe Designer AI</h1>
@@ -210,13 +257,58 @@ export default function HomePage() {
         </div>
       </main>
 
-      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent>
+      {/* --- DIALOGS --- */}
+      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}><DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}><DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent></Dialog>
+
+      <Dialog open={isAgentManagerOpen} onOpenChange={setIsAgentManagerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Agent Manager</DialogTitle>
+            <DialogDescription>
+              Here you can view and edit the system prompts for your team of AI agents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto p-2">
+            {agents.map((agent) => (
+              <div key={agent.agentId} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-semibold">{agent.name !== "Unnamed Agent" ? agent.name : agent.agentId}</h3>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
+                </div>
+                <Button variant="outline" size="icon" className="ml-4 flex-shrink-0" onClick={() => handleEditAgent(agent)}>
+                  <FilePenLine className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAgentManagerOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent>
+      
+      <Dialog open={isEditAgentOpen} onOpenChange={setIsEditAgentOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Agent: {currentAgent?.name !== "Unnamed Agent" ? currentAgent?.name : currentAgent?.agentId}</DialogTitle>
+            <DialogDescription>
+              Modify the system prompt below. This will change the agent's core behavior.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            <Textarea
+              value={editedPrompt}
+              onChange={(e) => setEditedPrompt(e.target.value)}
+              className="h-96 text-sm font-mono bg-gray-50 dark:bg-gray-900"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditAgentOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveAgent}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );
 }
-
