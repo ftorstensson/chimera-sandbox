@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v12.2.1 - Fix: Add Edit Agent Dialog (Corrected)
+// v12.3 - Wire Up Save Agent Functionality
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -93,7 +93,6 @@ export default function HomePage() {
     }
   }, [backendApiUrl]);
 
-  // FIX: Restore the full function bodies
   const handleSubmit = async (input: string) => {
     const effectiveInput = input.trim();
     if (!effectiveInput || isLoading) return;
@@ -146,17 +145,21 @@ export default function HomePage() {
     } catch (error) { console.error("Failed to delete chat:", error); }
   };
   
-  const handleManageAgents = async () => {
-    console.log("Opening Agent Manager...");
+  const fetchAgents = async () => {
     try {
       const response = await fetch(`${backendApiUrl}/agents`);
       if (!response.ok) throw new Error("Failed to fetch agents");
       const agentData: Agent[] = await response.json();
       setAgents(agentData);
-      setIsAgentManagerOpen(true);
+      return agentData;
     } catch (error) {
       console.error("Failed to fetch agents:", error);
     }
+  };
+
+  const handleManageAgents = async () => {
+    await fetchAgents();
+    setIsAgentManagerOpen(true);
   };
 
   const handleEditAgent = (agent: Agent) => {
@@ -167,10 +170,19 @@ export default function HomePage() {
   
   const handleSaveAgent = async () => {
     if (!currentAgent) return;
-    console.log(`Saving agent: ${currentAgent.agentId}`);
-    console.log(`New prompt: ${editedPrompt}`);
-    // For now, we just close the dialog.
-    setIsEditAgentOpen(false);
+    try {
+        await fetch(`${backendApiUrl}/agents/${currentAgent.agentId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ system_prompt: editedPrompt }),
+        });
+        setIsEditAgentOpen(false);
+        // Refresh the agent list to show the updated prompt
+        await fetchAgents(); 
+    } catch (error) {
+        console.error("Failed to save agent:", error);
+        // Optionally, show an error to the user
+    }
   };
   
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
