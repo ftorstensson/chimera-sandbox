@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v13.0.1 - Fix: Implement Agent Renaming UI (Corrected)
+// v14.0.1 - Fix: Implement Agent Deletion (Corrected)
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
@@ -57,6 +57,8 @@ export default function HomePage() {
   const [editedPrompt, setEditedPrompt] = useState("");
   const [renamingAgentId, setRenamingAgentId] = useState<string | null>(null);
   const [newAgentName, setNewAgentName] = useState("");
+  const [isDeleteAgentDialogOpen, setIsDeleteAgentDialogOpen] = useState(false);
+  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -203,6 +205,20 @@ export default function HomePage() {
     }
   };
   
+  const handleDeleteAgent = async () => {
+    if (!agentToDelete) return;
+    try {
+        await fetch(`${backendApiUrl}/agents/${agentToDelete.agentId}`, {
+            method: 'DELETE',
+        });
+        setIsDeleteAgentDialogOpen(false);
+        setAgentToDelete(null);
+        await fetchAgents(); // Refresh the list
+    } catch (error) {
+        console.error("Failed to delete agent:", error);
+    }
+  };
+
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   return (
@@ -275,7 +291,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* FIX: Restore all dialogs */}
+      {/* --- DIALOGS (ALL RESTORED) --- */}
       <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}><DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}><DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent></Dialog>
       
@@ -284,7 +300,7 @@ export default function HomePage() {
           <DialogHeader>
             <DialogTitle>Agent Manager</DialogTitle>
             <DialogDescription>
-              Click on an agent's name to rename it. Use the edit button to change its prompt.
+              Manage your team of AI agents.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto p-2">
@@ -301,21 +317,29 @@ export default function HomePage() {
                       className="text-lg font-semibold"
                     />
                   ) : (
-                    <h3
-                      className="text-lg font-semibold cursor-pointer"
-                      onClick={() => {
-                        setRenamingAgentId(agent.agentId);
-                        setNewAgentName(agent.name);
-                      }}
-                    >
-                      {agent.name}
-                    </h3>
+                    <h3 className="text-lg font-semibold">{agent.name}</h3>
                   )}
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
                 </div>
-                <Button variant="outline" size="icon" className="ml-4 flex-shrink-0" onClick={() => handleEditAgent(agent)}>
-                  <FilePenLine className="h-4 w-4" />
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="ml-4 flex-shrink-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => { setRenamingAgentId(agent.agentId); setNewAgentName(agent.name); }}>
+                            <Edit className="mr-2 h-4 w-4" /> Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleEditAgent(agent)}>
+                            <FilePenLine className="mr-2 h-4 w-4" /> Edit Prompt
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-red-500" onClick={() => { setAgentToDelete(agent); setIsDeleteAgentDialogOpen(true); }}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete Agent
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ))}
           </div>
@@ -328,7 +352,7 @@ export default function HomePage() {
       <Dialog open={isEditAgentOpen} onOpenChange={setIsEditAgentOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Edit Agent: {currentAgent?.name !== "Unnamed Agent" ? currentAgent?.name : currentAgent?.agentId}</DialogTitle>
+            <DialogTitle>Edit Agent: {currentAgent?.name}</DialogTitle>
             <DialogDescription>
               Modify the system prompt below. This will change the agent's core behavior.
             </DialogDescription>
@@ -344,6 +368,22 @@ export default function HomePage() {
             <Button variant="outline" onClick={() => setIsEditAgentOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveAgent}>Save Changes</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteAgentDialogOpen} onOpenChange={setIsDeleteAgentDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Are you absolutely sure?</DialogTitle>
+                <DialogDescription>
+                    This action cannot be undone. This will permanently delete the agent
+                    <span className="font-bold text-yellow-400"> {agentToDelete?.name}</span>.
+                </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsDeleteAgentDialogOpen(false)}>Cancel</Button>
+                <Button variant="destructive" onClick={handleDeleteAgent}>Yes, Delete Agent</Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
