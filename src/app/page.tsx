@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v11.0 - The PROVEN Professional Layout
+// v12.0 - Add "Manage Agents" Button
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+// 1. IMPORT NEW ICON
+import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2, Users } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 interface ChatMessage { role: 'user' | 'assistant' | 'tool'; content: string | null; agent_used?: string; structured_data?: any; }
@@ -49,6 +50,9 @@ export default function HomePage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  // 2. ADD STATE FOR AGENT MANAGEMENT DIALOG
+  const [isAgentManagerOpen, setIsAgentManagerOpen] = useState(false);
+
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -138,6 +142,13 @@ export default function HomePage() {
       setIsDeleteDialogOpen(false);
     } catch (error) { console.error("Failed to delete chat:", error); }
   };
+
+  // 3. ADD HANDLER FOR THE NEW BUTTON
+  const handleManageAgents = () => {
+    console.log("Opening Agent Manager...");
+    // We will build this out later. For now, it just logs to the console.
+    // setIsAgentManagerOpen(true); 
+  };
   
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -145,7 +156,11 @@ export default function HomePage() {
     <div className="flex h-screen w-full bg-gray-100 dark:bg-[#131314] text-gray-900 dark:text-gray-100">
       
       <aside className={`flex flex-col flex-shrink-0 bg-[#1e1f20] text-white transition-all duration-300 ${isSidebarOpen ? 'w-72' : 'w-0'}`}>
-        <div className="p-2 flex-shrink-0"><Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button></div>
+        <div className="p-2 flex-shrink-0 border-b border-gray-700/50 pb-2 mb-2">
+            <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleNewChat}><Plus /> New Chat</Button>
+            {/* 4. ADD THE NEW "MANAGE AGENTS" BUTTON */}
+            <Button variant="ghost" className="w-full justify-start gap-2 text-lg" onClick={handleManageAgents}><Users /> Manage Agents</Button>
+        </div>
         <div className="flex-grow overflow-y-auto px-2">
           <p className="px-3 py-2 text-sm font-medium text-gray-400">Recent</p>
           <nav className="space-y-1">
@@ -167,7 +182,7 @@ export default function HomePage() {
         </div>
       </aside>
 
-      {/* ===== THIS IS OUR PROVEN LAYOUT STRUCTURE ===== */}
+      {/* ===== MAIN CONTENT AREA ===== */}
       <main className="flex flex-1 flex-col h-full bg-white dark:bg-[#131314]">
         
         <header className="flex items-center p-2 flex-shrink-0 border-b dark:border-gray-700">
@@ -219,4 +234,3 @@ export default function HomePage() {
     </div>
   );
 }
-
