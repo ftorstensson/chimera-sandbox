@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v12.1 - Implement Agent Manager Dialog
+// v12.2.1 - Fix: Add Edit Agent Dialog (Corrected)
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -12,12 +12,11 @@ import { Input } from "@/components/ui/input";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2, Users } from 'lucide-react';
+import { Menu, Compass, Code, MessageSquare, Plus, MoreHorizontal, Edit, Trash2, Users, FilePenLine } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 interface ChatMessage { role: 'user' | 'assistant' | 'tool'; content: string | null; agent_used?: string; structured_data?: any; }
 interface ChatHistoryItem { chatId: string; title: string; }
-// 1. ADD TYPE DEFINITION FOR AN AGENT
 interface Agent { agentId: string; name: string; system_prompt: string; }
 const agentList = ['concept_crafter', 'guide_agent', 'insight_agent'];
 
@@ -52,8 +51,10 @@ export default function HomePage() {
   const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [isAgentManagerOpen, setIsAgentManagerOpen] = useState(false);
-  // 2. ADD STATE TO STORE THE LIST OF AGENTS
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
+  const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
+  const [editedPrompt, setEditedPrompt] = useState("");
 
   const bottomOfChatRef = useRef<HTMLDivElement>(null);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
@@ -92,6 +93,7 @@ export default function HomePage() {
     }
   }, [backendApiUrl]);
 
+  // FIX: Restore the full function bodies
   const handleSubmit = async (input: string) => {
     const effectiveInput = input.trim();
     if (!effectiveInput || isLoading) return;
@@ -143,8 +145,7 @@ export default function HomePage() {
       setIsDeleteDialogOpen(false);
     } catch (error) { console.error("Failed to delete chat:", error); }
   };
-
-  // 3. UPDATE HANDLER TO FETCH AGENTS AND OPEN DIALOG
+  
   const handleManageAgents = async () => {
     console.log("Opening Agent Manager...");
     try {
@@ -155,8 +156,21 @@ export default function HomePage() {
       setIsAgentManagerOpen(true);
     } catch (error) {
       console.error("Failed to fetch agents:", error);
-      // Optionally, show an error message to the user
     }
+  };
+
+  const handleEditAgent = (agent: Agent) => {
+    setCurrentAgent(agent);
+    setEditedPrompt(agent.system_prompt);
+    setIsEditAgentOpen(true);
+  };
+  
+  const handleSaveAgent = async () => {
+    if (!currentAgent) return;
+    console.log(`Saving agent: ${currentAgent.agentId}`);
+    console.log(`New prompt: ${editedPrompt}`);
+    // For now, we just close the dialog.
+    setIsEditAgentOpen(false);
   };
   
   useEffect(() => { bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -190,9 +204,7 @@ export default function HomePage() {
         </div>
       </aside>
 
-      {/* ===== MAIN CONTENT AREA ===== */}
       <main className="flex flex-1 flex-col h-full bg-white dark:bg-[#131314]">
-        
         <header className="flex items-center p-2 flex-shrink-0 border-b dark:border-gray-700">
           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mr-2 text-gray-500"><Menu size={24} /></Button>
           <h1 className="text-xl font-semibold">Vibe Designer AI</h1>
@@ -234,15 +246,9 @@ export default function HomePage() {
       </main>
 
       {/* --- DIALOGS --- */}
+      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}><DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}><DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter new title..." /><DialogFooter><Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>Cancel</Button><Button onClick={handleRename}>Rename</Button></DialogFooter></DialogContent>
-      </Dialog>
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader><p>This action cannot be undone. This will permanently delete this chat.</p><DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleDelete}>Delete</Button></DialogFooter></DialogContent>
-      </Dialog>
-
-      {/* 4. ADD THE NEW AGENT MANAGER DIALOG */}
       <Dialog open={isAgentManagerOpen} onOpenChange={setIsAgentManagerOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -253,14 +259,41 @@ export default function HomePage() {
           </DialogHeader>
           <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto p-2">
             {agents.map((agent) => (
-              <div key={agent.agentId} className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                <h3 className="text-lg font-semibold">{agent.name !== "Unnamed Agent" ? agent.name : agent.agentId}</h3>
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
+              <div key={agent.agentId} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-semibold">{agent.name !== "Unnamed Agent" ? agent.name : agent.agentId}</h3>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 truncate">{agent.system_prompt}</p>
+                </div>
+                <Button variant="outline" size="icon" className="ml-4 flex-shrink-0" onClick={() => handleEditAgent(agent)}>
+                  <FilePenLine className="h-4 w-4" />
+                </Button>
               </div>
             ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAgentManagerOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={isEditAgentOpen} onOpenChange={setIsEditAgentOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Agent: {currentAgent?.name !== "Unnamed Agent" ? currentAgent?.name : currentAgent?.agentId}</DialogTitle>
+            <DialogDescription>
+              Modify the system prompt below. This will change the agent's core behavior.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            <Textarea
+              value={editedPrompt}
+              onChange={(e) => setEditedPrompt(e.target.value)}
+              className="h-96 text-sm font-mono bg-gray-50 dark:bg-gray-900"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditAgentOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveAgent}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
