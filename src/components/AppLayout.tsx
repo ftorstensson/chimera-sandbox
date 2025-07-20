@@ -1,5 +1,5 @@
 // src/components/AppLayout.tsx
-// v2.4 - Definitive Fix for ALL Type and Prop Errors
+// v2.7 - Definitive Final Corrected Version
 
 "use client"; 
 
@@ -59,23 +59,23 @@ const AppLayoutContent = (props: AppLayoutProps) => {
             <div className={`flex-grow mt-2 overflow-y-auto transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
               {props.activeMode === 'chat' ? ( 
                   <ChatModeSidebar 
-                    teams={props.teams}
-                    activeTeam={props.activeTeam}
-                    onTeamSelect={props.onSetActiveTeam}
-                    chatHistory={props.chatHistory}
-                    onNewChat={props.onNewChat}
-                    onLoadChat={props.onLoadChat}
-                    currentChatId={props.currentChatId}
-                    onRenameChat={props.onRenameChat}
-                    onDeleteChat={props.onDeleteChat}
+                      teams={props.teams}
+                      activeTeam={props.activeTeam}
+                      onTeamSelect={props.onSetActiveTeam}
+                      chatHistory={props.chatHistory}
+                      onNewChat={props.onNewChat}
+                      onLoadChat={props.onLoadChat}
+                      currentChatId={props.currentChatId}
+                      onRenameChat={props.onRenameChat}
+                      onDeleteChat={props.onDeleteChat}
                   /> 
                 ) : ( 
                   <TeamModeSidebar 
-                    teams={props.teams}
-                    activeTeam={props.activeTeam}
-                    onTeamSelect={props.onSetActiveTeam}
-                    onCreateTeamClick={props.onCreateTeamClick}
-                    onCreateTeamWithAIClick={props.onCreateTeamWithAIClick}
+                      teams={props.teams}
+                      activeTeam={props.activeTeam}
+                      onTeamSelect={props.onSetActiveTeam}
+                      onCreateTeamClick={props.onCreateTeamClick}
+                      onCreateTeamWithAIClick={props.onCreateTeamWithAIClick}
                   /> 
                 )}
             </div>

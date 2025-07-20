@@ -1,101 +1,359 @@
-// src/app/page.tsx
-// v20.1 - Definitive Fix for All State, Rendering, and UI Bugs
-
+// v23.1 - Definitive State Management Refactor
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useReducer } from "react";
 import { AppLayout, Team, ChatHistoryItem, Agent } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
+// =================================================================
+// 1. State, Types, and Initial State
+// =================================================================
+interface AppState {
+    view: 'welcome' | 'chat' | 'team_management' | 'team_builder';
+    teams: Team[];
+    chatHistory: ChatHistoryItem[];
+    agents: Agent[];
+    activeTeam: Team | null;
+    currentChatId: string | null;
+    messages: any[];
+    builderMessages: any[];
+    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat';
+    chatToEdit: ChatHistoryItem | null;
+    status: 'idle' | 'loading' | 'error';
+    error: string | null;
+}
+
+const initialState: AppState = {
+    view: 'welcome',
+    teams: [],
+    chatHistory: [],
+    agents: [],
+    activeTeam: null,
+    currentChatId: null,
+    messages: [],
+    builderMessages: [],
+    dialog: 'none',
+    chatToEdit: null,
+    status: 'idle',
+    error: null,
+};
+
+type AppAction =
+    | { type: 'START_LOADING' }
+    | { type: 'SET_ERROR'; payload: string }
+    | { type: 'INITIAL_LOAD_SUCCESS'; payload: { teams: Team[] } }
+    | { type: 'SELECT_TEAM_START'; payload: Team }
+    | { type: 'SELECT_TEAM_SUCCESS'; payload: { chatHistory: ChatHistoryItem[]; agents: Agent[] } }
+    | { type: 'SWITCH_MODE'; payload: 'chat' | 'team' }
+    | { type: 'CREATE_TEAM_SUCCESS'; payload: Team }
+    | { type: 'START_NEW_CHAT' }
+    | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
+    | { type: 'SEND_CHAT_MESSAGE'; payload: any }
+    | { type: 'RECEIVE_CHAT_MESSAGE'; payload: { messages: any[]; chatId?: string } }
+    | { type: 'UPDATE_CHAT_HISTORY_SUCCESS'; payload: ChatHistoryItem[] }
+    | { type: 'START_TEAM_BUILDER' }
+    | { type: 'SEND_BUILDER_MESSAGE'; payload: any }
+    | { type: 'RECEIVE_BUILDER_MESSAGE'; payload: any }
+    | { type: 'FINISH_TEAM_BUILDER'; payload: Team }
+    | { type: 'OPEN_DIALOG'; payload: { dialog: AppState['dialog']; chat?: ChatHistoryItem } }
+    | { type: 'CLOSE_DIALOG' };
+
+// =================================================================
+// 2. Reducer Function
+// =================================================================
+function appReducer(state: AppState, action: AppAction): AppState {
+    switch (action.type) {
+        case 'START_LOADING':
+            return { ...state, status: 'loading', error: null };
+        case 'SET_ERROR':
+            return { ...state, status: 'error', error: action.payload };
+        case 'INITIAL_LOAD_SUCCESS':
+            const firstTeam = action.payload.teams[0] || null;
+            return { ...state, teams: action.payload.teams, activeTeam: firstTeam, status: 'idle', view: firstTeam ? 'chat' : 'welcome' };
+        case 'SELECT_TEAM_START':
+            return { ...state, status: 'loading', activeTeam: action.payload, currentChatId: null, messages: [], view: 'chat' };
+        case 'SELECT_TEAM_SUCCESS':
+            return { ...state, status: 'idle', chatHistory: action.payload.chatHistory, agents: action.payload.agents };
+        case 'SWITCH_MODE':
+            if (action.payload === 'team') {
+                return { ...state, view: state.activeTeam ? 'team_management' : 'welcome' };
+            }
+            return { ...state, view: 'chat' };
+        case 'CREATE_TEAM_SUCCESS':
+            return { ...state, teams: [...state.teams, action.payload] };
+        case 'START_NEW_CHAT':
+            return { ...state, currentChatId: null, messages: [], view: 'chat' };
+        case 'LOAD_CHAT_SUCCESS':
+            return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
+        case 'SEND_CHAT_MESSAGE':
+            return { ...state, status: 'loading', messages: [...state.messages, action.payload] };
+        case 'RECEIVE_CHAT_MESSAGE':
+            return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId };
+        case 'UPDATE_CHAT_HISTORY_SUCCESS':
+            return { ...state, chatHistory: action.payload };
+        case 'START_TEAM_BUILDER':
+            return { ...state, view: 'team_builder', builderMessages: [], status: 'idle' };
+        case 'SEND_BUILDER_MESSAGE':
+            return { ...state, status: 'loading', builderMessages: [...state.builderMessages, action.payload] };
+        case 'RECEIVE_BUILDER_MESSAGE':
+            return { ...state, status: 'idle', builderMessages: [...state.builderMessages, action.payload] };
+        case 'FINISH_TEAM_BUILDER':
+            const newTeams = state.teams.map(t => t.teamId === 'wip-team' ? action.payload : t);
+            if (!newTeams.find(t => t.teamId === action.payload.teamId)) {
+                newTeams.push(action.payload);
+            }
+            return { ...state, teams: newTeams, activeTeam: action.payload, view: 'team_management' };
+        case 'OPEN_DIALOG':
+            return { ...state, dialog: action.payload.dialog, chatToEdit: action.payload.chat || null };
+        case 'CLOSE_DIALOG':
+            return { ...state, dialog: 'none', chatToEdit: null };
+        default:
+            return state;
+    }
+}
+
+// =================================================================
+// 3. Main Page Component
+// =================================================================
 export default function HomePage() {
-  const [activeMode, setActiveMode] = useState<'chat' | 'team'>('chat');
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [isLoadingAgents, setIsLoadingAgents] = useState(true);
-  const [activeTeam, setActiveTeam] = useState<Team | null>(null);
-  const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
-  const [newTeamName, setNewTeamName] = useState("");
-  const [isRenameChatDialogOpen, setIsRenameChatDialogOpen] = useState(false);
-  const [isDeleteChatDialogOpen, setIsDeleteChatDialogOpen] = useState(false);
-  const [chatToEdit, setChatToEdit] = useState<ChatHistoryItem | null>(null);
-  const [newChatTitle, setNewChatTitle] = useState("");
-  const [messages, setMessages] = useState<any[]>([]);
-  const [currentInput, setCurrentInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [isBuildingWithAI, setIsBuildingWithAI] = useState(false);
-  const [builderMessages, setBuilderMessages] = useState<any[]>([]);
-  const [isBuilderLoading, setIsBuilderLoading] = useState(false);
-  const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
+    const [state, dispatch] = useReducer(appReducer, initialState);
+    const [currentInput, setCurrentInput] = useState("");
+    const [dialogInput, setDialogInput] = useState("");
+    const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
-  const fetchTeams = useCallback(async () => { try { const response = await fetch(`${backendApiUrl}/teams`); const data: Team[] = await response.json(); setTeams(data); return data; } catch (error) { console.error(error); return []; } }, []);
-  const fetchChatHistory = useCallback(async (teamId: string) => { if (!teamId) return; try { const res = await fetch(`${backendApiUrl}/teams/${teamId}/chats`); setChatHistory(await res.json() || []); } catch (e) { console.error(e); setChatHistory([]); }}, []);
-  const fetchAgentsForTeam = useCallback(async (teamId: string) => { if (!teamId) return; setIsLoadingAgents(true); try { const res = await fetch(`${backendApiUrl}/teams/${teamId}/agents`); setAgents(await res.json() || []); } catch (e) { console.error(e); setAgents([]); } finally { setIsLoadingAgents(false); }}, []);
-  
-  useEffect(() => {
-    fetchTeams().then(fetchedTeams => {
-        if (fetchedTeams.length > 0 && !activeTeam) {
-            setActiveTeam(fetchedTeams[0]);
+    // --- Data Fetching and Side Effects ---
+    const fetchTeams = useCallback(async () => {
+        try {
+            const response = await fetch(`${backendApiUrl}/teams`);
+            const data: Team[] = await response.json();
+            dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams: data } });
+            return data;
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to fetch teams.' });
+            return [];
         }
-    });
-  }, []);
+    }, []);
 
-  useEffect(() => {
-    if (activeTeam) {
-      fetchChatHistory(activeTeam.teamId);
-      fetchAgentsForTeam(activeTeam.teamId);
-      handleNewChat(); // Reset chat when team changes
-    } else {
-      setChatHistory([]);
-      setAgents([]);
-    }
-  }, [activeTeam]);
+    const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
+        dispatch({ type: 'START_LOADING' });
+        try {
+            const [chatRes, agentRes] = await Promise.all([
+                fetch(`${backendApiUrl}/teams/${teamId}/chats`),
+                fetch(`${backendApiUrl}/teams/${teamId}/agents`),
+            ]);
+            const chatHistory = await chatRes.json();
+            const agents = await agentRes.json();
+            dispatch({ type: 'SELECT_TEAM_SUCCESS', payload: { chatHistory, agents } });
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to load team data.' });
+        }
+    }, []);
 
-  const handleSetActiveTeam = (teamOrId: Team | string) => {
-    const team = typeof teamOrId === 'string'
-      ? teams.find(t => t.teamId === teamOrId)
-      : teamOrId;
+    useEffect(() => {
+        fetchTeams();
+    }, [fetchTeams]);
+
+    useEffect(() => {
+        if (state.activeTeam) {
+            fetchDependenciesForTeam(state.activeTeam.teamId);
+        }
+    }, [state.activeTeam, fetchDependenciesForTeam]);
+
+    // --- Event Handlers ---
+    const handleSetActiveTeam = (teamOrId: Team | string) => {
+        const teamToSelect = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
+        if (teamToSelect && teamToSelect.teamId !== state.activeTeam?.teamId) {
+            dispatch({ type: 'SELECT_TEAM_START', payload: teamToSelect });
+        }
+    };
     
-    if (team) {
-      setActiveTeam(team);
-    }
-  };
-  
-  const handleNewChat = () => { setCurrentChatId(null); setMessages([]); };
-  const handleLoadChat = useCallback(async (chatId: string) => { setIsLoading(true); try { const response = await fetch(`${backendApiUrl}/chats/${chatId}`); const data = await response.json(); setMessages(data.messages || []); setCurrentChatId(chatId); } catch (error) { console.error(error); } finally { setIsLoading(false); } }, []);
-  
-  const handleCreateTeam = async () => { if (!newTeamName.trim()) return; try { const response = await fetch(`${backendApiUrl}/teams`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeamName }) }); const newTeam = await response.json(); setNewTeamName(""); setIsCreateTeamDialogOpen(false); const updatedTeams = await fetchTeams(); const newTeamInList = updatedTeams.find(t => t.teamId === newTeam.teamId); if (newTeamInList) { handleSetActiveTeam(newTeamInList); } } catch (error) { console.error(error); }};
-  const handleRenameChat = async () => { if (!chatToEdit || !newChatTitle.trim() || !activeTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}/rename`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_title: newChatTitle }), }); setIsRenameChatDialogOpen(false); setNewChatTitle(""); await fetchChatHistory(activeTeam.teamId); } catch (error) { console.error("Failed to rename chat:", error); }};
-  const handleDeleteChat = async () => { if (!chatToEdit || !activeTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}`, { method: "DELETE" }); if (currentChatId === chatToEdit.chatId) { handleNewChat(); } setIsDeleteChatDialogOpen(false); await fetchChatHistory(activeTeam.teamId); } catch (error) { console.error("Failed to delete chat:", error); }};
-  
-  const handleSubmitChat = async (e: React.FormEvent) => { e.preventDefault(); if (!activeTeam) return; const effectiveInput = currentInput.trim(); if (!effectiveInput || isLoading) return; setIsLoading(true); const newMessages = [...messages, { role: 'user', content: effectiveInput }]; setMessages(newMessages); setCurrentInput(""); try { const response = await fetch(`${backendApiUrl}/teams/${activeTeam.teamId}/chats`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId: currentChatId, message: effectiveInput }), }); const data = await response.json(); if (data.error) throw new Error(data.error); setMessages(data.messages || []); if (!currentChatId && data.chatId) { setCurrentChatId(data.chatId); await fetchChatHistory(activeTeam.teamId); } } catch (error) { const errorMessage = error instanceof Error ? error.message : "An unknown error occurred."; setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMessage}` }]); } finally { setIsLoading(false); }};
-  const handleSubmitTeamBuilder = async (input: string) => { const userInput = { role: 'user', content: input }; const newBuilderMessages = [...builderMessages, userInput]; setBuilderMessages(newBuilderMessages); setIsBuilderLoading(true); if (builderMessages.length === 0) { const optimisticTeam: Team = { teamId: 'wip-team', name: 'Creating Team...' }; setTeams(prevTeams => [optimisticTeam, ...prevTeams]); setActiveTeam(optimisticTeam); } try { const response = await fetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: newBuilderMessages }) }); const data = await response.json(); setBuilderMessages([...newBuilderMessages, data]); const updatedTeams = await fetchTeams(); if (data.tool_outputs && data.tool_outputs.new_team_id) { const newTeam = updatedTeams.find(t => t.teamId === data.tool_outputs.new_team_id); if (newTeam) { handleSetActiveTeam(newTeam); } } } catch (error) { console.error(error); setBuilderMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error.' }]); } finally { setIsBuilderLoading(false); }};
-  
-  const renderMainContent = () => { if (activeMode === 'team') { if (isBuildingWithAI) { return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isBuilderLoading} handleSubmit={(e) => { e.preventDefault(); handleSubmitTeamBuilder(currentInput); setCurrentInput(""); }} /> } if (activeTeam) { return <TeamManagementView team={activeTeam} agents={agents} isLoading={isLoadingAgents} onCreateAgent={() => alert("TBD")} onEditAgent={(agent) => alert(`TBD: ${agent.name}`)} onRenameAgent={(agent) => alert(`TBD: ${agent.name}`)} onDeleteAgent={(agent) => alert(`TBD: ${agent.name}`)} /> } return <WelcomeScreen />; } if (activeTeam) { return <ChatView messages={messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isLoading} handleSubmit={handleSubmitChat} /> } return <WelcomeScreen/>; };
+    const handleModeChange = (mode: 'chat' | 'team') => {
+        if(mode === 'team' && state.view === 'team_builder') return;
+        dispatch({ type: 'SWITCH_MODE', payload: mode });
+    };
 
-  return (
-    <>
-      <AppLayout
-        activeMode={activeMode} setActiveMode={(mode) => { setActiveMode(mode); if (mode !== 'team') setIsBuildingWithAI(false); }}
-        teams={teams} activeTeam={activeTeam} chatHistory={chatHistory} currentChatId={currentChatId}
-        onSetActiveTeam={handleSetActiveTeam} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
-        onCreateTeamClick={() => setIsCreateTeamDialogOpen(true)}
-        onCreateTeamWithAIClick={() => { setActiveMode('team'); setIsBuildingWithAI(true); setBuilderMessages([]); }}
-        onRenameChat={(chat) => { setChatToEdit(chat); setNewChatTitle(chat.title); setIsRenameChatDialogOpen(true); }}
-        onDeleteChat={(chat) => { setChatToEdit(chat); setIsDeleteChatDialogOpen(true); }}
-      >
-        {renderMainContent()}
-      </AppLayout>
+    const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
 
-      <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}> <DialogContent> <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader> <Input value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="e.g., Marketing Engine" /> <DialogFooter> <Button variant="outline" onClick={() => setIsCreateTeamDialogOpen(false)}>Cancel</Button> <Button onClick={handleCreateTeam}>Create Team</Button> </DialogFooter> </DialogContent> </Dialog>
-      <Dialog open={isRenameChatDialogOpen} onOpenChange={setIsRenameChatDialogOpen}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={newChatTitle} onChange={(e) => setNewChatTitle(e.target.value)} placeholder="Enter new title..." /> <DialogFooter> <Button variant="outline" onClick={() => setIsRenameChatDialogOpen(false)}>Cancel</Button> <Button onClick={handleRenameChat}>Rename</Button> </DialogFooter> </DialogContent> </Dialog>
-      <Dialog open={isDeleteChatDialogOpen} onOpenChange={setIsDeleteChatDialogOpen}> <DialogContent> <DialogHeader><DialogTitle>Are you sure?</DialogTitle></DialogHeader> <p>This will permanently delete the chat titled "{chatToEdit?.title}".</p> <DialogFooter> <Button variant="outline" onClick={() => setIsDeleteChatDialogOpen(false)}>Cancel</Button> <Button variant="destructive" onClick={handleDeleteChat}>Delete</Button> </DialogFooter> </DialogContent> </Dialog>
-    </>
-  );
+    const handleLoadChat = useCallback(async (chatId: string) => {
+        dispatch({ type: 'START_LOADING' });
+        try {
+            const response = await fetch(`${backendApiUrl}/chats/${chatId}`);
+            const data = await response.json();
+            dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: data.messages || [] } });
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to load chat.' });
+        }
+    }, []);
+    
+    const handleSubmitChat = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!state.activeTeam || !currentInput.trim()) return;
+        const userMessage = { role: 'user', content: currentInput };
+        dispatch({ type: 'SEND_CHAT_MESSAGE', payload: userMessage });
+        setCurrentInput("");
+        try {
+            const res = await fetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chatId: state.currentChatId, message: userMessage.content }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            dispatch({ type: 'RECEIVE_CHAT_MESSAGE', payload: { messages: data.messages, chatId: data.chatId } });
+            if (!state.currentChatId) { // Auto-naming happened
+                await fetchDependenciesForTeam(state.activeTeam.teamId);
+            }
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: `Chat failed: ${error}` });
+        }
+    };
+
+    const handleCreateTeam = async () => {
+        if (!dialogInput.trim()) return;
+        dispatch({ type: 'START_LOADING' });
+        try {
+            const response = await fetch(`${backendApiUrl}/teams`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: dialogInput })
+            });
+            const newTeam = await response.json();
+            dispatch({ type: 'CREATE_TEAM_SUCCESS', payload: newTeam });
+            handleSetActiveTeam(newTeam);
+            handleDialogClose();
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to create team.' });
+        }
+    };
+    
+    const handleRenameChat = async () => {
+        if (!state.chatToEdit || !dialogInput.trim() || !state.activeTeam) return;
+        try {
+            await fetch(`${backendApiUrl}/chats/${state.chatToEdit.chatId}/rename`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ new_title: dialogInput }),
+            });
+            handleDialogClose();
+            await fetchDependenciesForTeam(state.activeTeam.teamId);
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to rename chat.' });
+        }
+    };
+
+    const handleDeleteChat = async () => {
+        if (!state.chatToEdit || !state.activeTeam) return;
+        try {
+            await fetch(`${backendApiUrl}/chats/${state.chatToEdit.chatId}`, { method: "DELETE" });
+            if (state.currentChatId === state.chatToEdit.chatId) {
+                dispatch({ type: 'START_NEW_CHAT' });
+            }
+            handleDialogClose();
+            await fetchDependenciesForTeam(state.activeTeam.teamId);
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: 'Failed to delete chat.' });
+        }
+    };
+    
+    const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
+    
+    const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const userInputContent = currentInput.trim();
+        if (!userInputContent) return;
+        
+        const userMessage = { role: 'user', content: userInputContent };
+        dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userMessage });
+        setCurrentInput("");
+        
+        try {
+            const response = await fetch(`${backendApiUrl}/team-builder/chat`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: [...state.builderMessages, userMessage] })
+            });
+            const data = await response.json();
+            dispatch({ type: 'RECEIVE_BUILDER_MESSAGE', payload: data });
+            
+            const codeBlockRegex = /```json\s*([\s\S]*?)\s*```/;
+            const match = data.content.match(codeBlockRegex);
+            if (match && match[1]) {
+                const teamData = JSON.parse(match[1]);
+                const creationResponse = await fetch(`${backendApiUrl}/team-builder/create`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(teamData)
+                });
+                const newTeam = await creationResponse.json();
+                if (newTeam.success) {
+                    await fetchTeams();
+                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { teamId: newTeam.teamId, name: newTeam.name } });
+                } else {
+                   throw new Error(newTeam.error || "Team creation failed on backend.");
+                }
+            }
+        } catch (error) {
+            dispatch({ type: 'SET_ERROR', payload: `Team Builder failed: ${error}`});
+        }
+    };
+    
+    const handleDialogOpen = (dialog: AppState['dialog'], chat?: ChatHistoryItem) => {
+        setDialogInput(chat?.title || "");
+        dispatch({ type: 'OPEN_DIALOG', payload: { dialog, chat } });
+    };
+
+    const handleDialogClose = () => {
+        setDialogInput("");
+        dispatch({ type: 'CLOSE_DIALOG' });
+    };
+
+    // --- Render Logic ---
+    const renderMainContent = () => {
+        switch (state.view) {
+            case 'welcome': return <WelcomeScreen />;
+            case 'chat': return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} />;
+            case 'team_management': return <TeamManagementView team={state.activeTeam!} agents={state.agents} isLoading={state.status === 'loading'} onCreateAgent={() => {}} onEditAgent={() => {}} onRenameAgent={() => {}} onDeleteAgent={() => {}} />;
+            case 'team_builder': return <ChatView messages={state.builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} />;
+            default: return <WelcomeScreen />;
+        }
+    };
+    
+    const activeMode = state.view === 'chat' ? 'chat' : 'team';
+
+    return (
+        <>
+            <AppLayout
+                activeMode={activeMode} setActiveMode={handleModeChange}
+                teams={state.teams} activeTeam={state.activeTeam} chatHistory={state.chatHistory} currentChatId={state.currentChatId}
+                onSetActiveTeam={handleSetActiveTeam} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
+                onCreateTeamClick={() => handleDialogOpen('create_team')}
+                onCreateTeamWithAIClick={handleStartTeamBuilder}
+                onRenameChat={(chat) => handleDialogOpen('rename_chat', chat)}
+                onDeleteChat={(chat) => handleDialogOpen('delete_chat', chat)}
+            >
+                {renderMainContent()}
+            </AppLayout>
+
+            {/* Dialogs */}
+            <Dialog open={state.dialog === 'create_team'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader>
+                    <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Marketing Engine" />
+                    <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleCreateTeam}>Create</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader>
+                    <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." />
+                    <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}>
+                 <DialogContent>
+                    <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader>
+                    <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p>
+                    <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
 }
