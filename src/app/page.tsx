@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v18.0 - The Definitive, Fully Integrated Application
+// v20.1 - Definitive Fix for All State, Rendering, and UI Bugs
 
 "use client";
 
@@ -17,9 +17,8 @@ export default function HomePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [activeTeam, setActiveTeam] = useState<Team | null>(null);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
+  const [activeTeam, setActiveTeam] = useState<Team | null>(null);
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [isRenameChatDialogOpen, setIsRenameChatDialogOpen] = useState(false);
@@ -35,44 +34,57 @@ export default function HomePage() {
   const [isBuilderLoading, setIsBuilderLoading] = useState(false);
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
-  const fetchTeams = useCallback(async () => { try { const response = await fetch(`${backendApiUrl}/teams`); const data: Team[] = await response.json(); setTeams(data); return data; } catch (error) { console.error("Failed to fetch teams:", error); return []; } }, []);
+  const fetchTeams = useCallback(async () => { try { const response = await fetch(`${backendApiUrl}/teams`); const data: Team[] = await response.json(); setTeams(data); return data; } catch (error) { console.error(error); return []; } }, []);
   const fetchChatHistory = useCallback(async (teamId: string) => { if (!teamId) return; try { const res = await fetch(`${backendApiUrl}/teams/${teamId}/chats`); setChatHistory(await res.json() || []); } catch (e) { console.error(e); setChatHistory([]); }}, []);
   const fetchAgentsForTeam = useCallback(async (teamId: string) => { if (!teamId) return; setIsLoadingAgents(true); try { const res = await fetch(`${backendApiUrl}/teams/${teamId}/agents`); setAgents(await res.json() || []); } catch (e) { console.error(e); setAgents([]); } finally { setIsLoadingAgents(false); }}, []);
   
   useEffect(() => {
     fetchTeams().then(fetchedTeams => {
-        if (fetchedTeams.length > 0 && !selectedTeam) {
-            const initialTeam = fetchedTeams[0];
-            setSelectedTeam(initialTeam);
-            setActiveTeam(initialTeam);
+        if (fetchedTeams.length > 0 && !activeTeam) {
+            setActiveTeam(fetchedTeams[0]);
         }
     });
   }, []);
 
-  useEffect(() => { if (selectedTeam) { fetchChatHistory(selectedTeam.teamId); } else { setChatHistory([]); } }, [selectedTeam, fetchChatHistory]);
-  useEffect(() => { if (activeTeam) { fetchAgentsForTeam(activeTeam.teamId); } else { setAgents([]); } }, [activeTeam, fetchAgentsForTeam]);
+  useEffect(() => {
+    if (activeTeam) {
+      fetchChatHistory(activeTeam.teamId);
+      fetchAgentsForTeam(activeTeam.teamId);
+      handleNewChat(); // Reset chat when team changes
+    } else {
+      setChatHistory([]);
+      setAgents([]);
+    }
+  }, [activeTeam]);
 
-  const handleSelectTeamForChat = (teamId: string) => { const team = teams.find(t => t.teamId === teamId); if (team) setSelectedTeam(team); };
-  const handleSetActiveTeam = (team: Team) => { setActiveTeam(team); setSelectedTeam(team); };
+  const handleSetActiveTeam = (teamOrId: Team | string) => {
+    const team = typeof teamOrId === 'string'
+      ? teams.find(t => t.teamId === teamOrId)
+      : teamOrId;
+    
+    if (team) {
+      setActiveTeam(team);
+    }
+  };
+  
   const handleNewChat = () => { setCurrentChatId(null); setMessages([]); };
   const handleLoadChat = useCallback(async (chatId: string) => { setIsLoading(true); try { const response = await fetch(`${backendApiUrl}/chats/${chatId}`); const data = await response.json(); setMessages(data.messages || []); setCurrentChatId(chatId); } catch (error) { console.error(error); } finally { setIsLoading(false); } }, []);
   
   const handleCreateTeam = async () => { if (!newTeamName.trim()) return; try { const response = await fetch(`${backendApiUrl}/teams`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeamName }) }); const newTeam = await response.json(); setNewTeamName(""); setIsCreateTeamDialogOpen(false); const updatedTeams = await fetchTeams(); const newTeamInList = updatedTeams.find(t => t.teamId === newTeam.teamId); if (newTeamInList) { handleSetActiveTeam(newTeamInList); } } catch (error) { console.error(error); }};
-  const handleRenameChat = async () => { if (!chatToEdit || !newChatTitle.trim() || !selectedTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}/rename`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_title: newChatTitle }), }); setIsRenameChatDialogOpen(false); setNewChatTitle(""); await fetchChatHistory(selectedTeam.teamId); } catch (error) { console.error("Failed to rename chat:", error); }};
-  const handleDeleteChat = async () => { if (!chatToEdit || !selectedTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}`, { method: "DELETE" }); if (currentChatId === chatToEdit.chatId) { handleNewChat(); } setIsDeleteChatDialogOpen(false); await fetchChatHistory(selectedTeam.teamId); } catch (error) { console.error("Failed to delete chat:", error); }};
+  const handleRenameChat = async () => { if (!chatToEdit || !newChatTitle.trim() || !activeTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}/rename`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_title: newChatTitle }), }); setIsRenameChatDialogOpen(false); setNewChatTitle(""); await fetchChatHistory(activeTeam.teamId); } catch (error) { console.error("Failed to rename chat:", error); }};
+  const handleDeleteChat = async () => { if (!chatToEdit || !activeTeam) return; try { await fetch(`${backendApiUrl}/chats/${chatToEdit.chatId}`, { method: "DELETE" }); if (currentChatId === chatToEdit.chatId) { handleNewChat(); } setIsDeleteChatDialogOpen(false); await fetchChatHistory(activeTeam.teamId); } catch (error) { console.error("Failed to delete chat:", error); }};
   
-  const handleSubmitChat = async (e: React.FormEvent) => { e.preventDefault(); if (!selectedTeam) return; const effectiveInput = currentInput.trim(); if (!effectiveInput || isLoading) return; setIsLoading(true); const newMessages = [...messages, { role: 'user', content: effectiveInput }]; setMessages(newMessages); setCurrentInput(""); try { const response = await fetch(`${backendApiUrl}/teams/${selectedTeam.teamId}/chats`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId: currentChatId, message: effectiveInput }), }); const data = await response.json(); if (data.error) throw new Error(data.error); setMessages(data.messages || []); if (!currentChatId && data.chatId) { setCurrentChatId(data.chatId); await fetchChatHistory(selectedTeam.teamId); } } catch (error) { const errorMessage = error instanceof Error ? error.message : "An unknown error occurred."; setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMessage}` }]); } finally { setIsLoading(false); }};
-  const handleSubmitTeamBuilder = async (input: string) => { const userInput = { role: 'user', content: input }; const newBuilderMessages = [...builderMessages, userInput]; setBuilderMessages(newBuilderMessages); setIsBuilderLoading(true); if (builderMessages.length === 0) { const optimisticTeam: Team = { teamId: 'wip-team', name: 'Creating Team...' }; setTeams(prevTeams => [optimisticTeam, ...prevTeams]); setActiveTeam(optimisticTeam); } try { const response = await fetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: newBuilderMessages }) }); const data = await response.json(); setBuilderMessages([...newBuilderMessages, data]); const updatedTeams = await fetchTeams(); if (data.tool_calls) { const args = JSON.parse(data.tool_calls[0].function.arguments); const newTeamName = args.team_name; const newTeam = updatedTeams.find(t => t.name === newTeamName); if (newTeam) { handleSetActiveTeam(newTeam); } } } catch (error) { console.error(error); setBuilderMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error.' }]); } finally { setIsBuilderLoading(false); }};
+  const handleSubmitChat = async (e: React.FormEvent) => { e.preventDefault(); if (!activeTeam) return; const effectiveInput = currentInput.trim(); if (!effectiveInput || isLoading) return; setIsLoading(true); const newMessages = [...messages, { role: 'user', content: effectiveInput }]; setMessages(newMessages); setCurrentInput(""); try { const response = await fetch(`${backendApiUrl}/teams/${activeTeam.teamId}/chats`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId: currentChatId, message: effectiveInput }), }); const data = await response.json(); if (data.error) throw new Error(data.error); setMessages(data.messages || []); if (!currentChatId && data.chatId) { setCurrentChatId(data.chatId); await fetchChatHistory(activeTeam.teamId); } } catch (error) { const errorMessage = error instanceof Error ? error.message : "An unknown error occurred."; setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMessage}` }]); } finally { setIsLoading(false); }};
+  const handleSubmitTeamBuilder = async (input: string) => { const userInput = { role: 'user', content: input }; const newBuilderMessages = [...builderMessages, userInput]; setBuilderMessages(newBuilderMessages); setIsBuilderLoading(true); if (builderMessages.length === 0) { const optimisticTeam: Team = { teamId: 'wip-team', name: 'Creating Team...' }; setTeams(prevTeams => [optimisticTeam, ...prevTeams]); setActiveTeam(optimisticTeam); } try { const response = await fetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: newBuilderMessages }) }); const data = await response.json(); setBuilderMessages([...newBuilderMessages, data]); const updatedTeams = await fetchTeams(); if (data.tool_outputs && data.tool_outputs.new_team_id) { const newTeam = updatedTeams.find(t => t.teamId === data.tool_outputs.new_team_id); if (newTeam) { handleSetActiveTeam(newTeam); } } } catch (error) { console.error(error); setBuilderMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error.' }]); } finally { setIsBuilderLoading(false); }};
   
-  const renderMainContent = () => { if (activeMode === 'team') { if (isBuildingWithAI) { return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isBuilderLoading} handleSubmit={(e) => { e.preventDefault(); handleSubmitTeamBuilder(currentInput); setCurrentInput(""); }} /> } if (activeTeam) { return <TeamManagementView team={activeTeam} agents={agents} isLoading={isLoadingAgents} onCreateAgent={() => alert("TBD")} onEditAgent={(agent) => alert(`TBD: ${agent.name}`)} onRenameAgent={(agent) => alert(`TBD: ${agent.name}`)} onDeleteAgent={(agent) => alert(`TBD: ${agent.name}`)} /> } return <WelcomeScreen />; } return <ChatView messages={messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isLoading} handleSubmit={handleSubmitChat} /> };
+  const renderMainContent = () => { if (activeMode === 'team') { if (isBuildingWithAI) { return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isBuilderLoading} handleSubmit={(e) => { e.preventDefault(); handleSubmitTeamBuilder(currentInput); setCurrentInput(""); }} /> } if (activeTeam) { return <TeamManagementView team={activeTeam} agents={agents} isLoading={isLoadingAgents} onCreateAgent={() => alert("TBD")} onEditAgent={(agent) => alert(`TBD: ${agent.name}`)} onRenameAgent={(agent) => alert(`TBD: ${agent.name}`)} onDeleteAgent={(agent) => alert(`TBD: ${agent.name}`)} /> } return <WelcomeScreen />; } if (activeTeam) { return <ChatView messages={messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={isLoading} handleSubmit={handleSubmitChat} /> } return <WelcomeScreen/>; };
 
   return (
     <>
       <AppLayout
         activeMode={activeMode} setActiveMode={(mode) => { setActiveMode(mode); if (mode !== 'team') setIsBuildingWithAI(false); }}
-        teams={teams} selectedTeam={selectedTeam} chatHistory={chatHistory} activeTeam={activeTeam} currentChatId={currentChatId}
-        onSelectTeamForChat={handleSelectTeamForChat} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
-        onSetActiveTeam={(team) => { handleSetActiveTeam(team); setIsBuildingWithAI(false); }}
+        teams={teams} activeTeam={activeTeam} chatHistory={chatHistory} currentChatId={currentChatId}
+        onSetActiveTeam={handleSetActiveTeam} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
         onCreateTeamClick={() => setIsCreateTeamDialogOpen(true)}
         onCreateTeamWithAIClick={() => { setActiveMode('team'); setIsBuildingWithAI(true); setBuilderMessages([]); }}
         onRenameChat={(chat) => { setChatToEdit(chat); setNewChatTitle(chat.title); setIsRenameChatDialogOpen(true); }}
