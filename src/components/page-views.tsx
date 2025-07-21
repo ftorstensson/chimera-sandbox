@@ -1,18 +1,19 @@
 // src/components/page-views.tsx
+// v2.8 - Integrated agent management buttons
+
 "use client";
 
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Plus, MoreHorizontal, Edit, FilePenLine, Trash2, Compass, Code, MessageSquare } from 'lucide-react';
+import { Plus, Compass, Code, MessageSquare } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
 
 // ==============================================================================
-//  1. Welcome Screen View
+//  1. Welcome Screen View (No changes)
 // ==============================================================================
 export const WelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -27,10 +28,10 @@ export const WelcomeScreen = () => (
 );
 
 // ==============================================================================
-//  2. Chat View
+//  2. Chat View (No changes)
 // ==============================================================================
 interface ChatViewProps {
-    messages: any[]; // Replace with proper ChatMessage type later
+    messages: any[];
     currentInput: string;
     setCurrentInput: (value: string) => void;
     isLoading: boolean;
@@ -76,7 +77,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
 };
 
 // ==============================================================================
-//  3. Team Management View
+//  3. Team Management View (MODIFIED)
 // ==============================================================================
 interface TeamManagementViewProps { 
     team: Team; 
@@ -84,22 +85,36 @@ interface TeamManagementViewProps {
     isLoading: boolean;
     onCreateAgent: () => void;
     onEditAgent: (agent: Agent) => void;
-    onRenameAgent: (agent: Agent) => void;
-    onDeleteAgent: (agent: Agent) => void;
+    // onRenameAgent and onDeleteAgent are no longer needed here
 }
-export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent, onRenameAgent, onDeleteAgent }: TeamManagementViewProps) => ( 
-    <div className="p-8"> 
+export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent }: TeamManagementViewProps) => ( 
+    <div className="p-8 max-w-4xl mx-auto"> 
         <header className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-zinc-800"> 
-            <div> <h1 className="text-3xl font-bold">{team.name}</h1> <p className="mt-1 text-lg text-gray-500 dark:text-gray-400"> Manage the agents in this team. </p> </div> 
-            <Button onClick={onCreateAgent}> <Plus className="mr-2 h-4 w-4" /> New Agent </Button> 
+            <div> 
+                <h1 className="text-3xl font-bold">{team.name}</h1> 
+                <p className="mt-1 text-lg text-gray-500 dark:text-gray-400"> Manage the agents in this team. </p> 
+            </div> 
+            <Button onClick={onCreateAgent}> 
+                <Plus className="mr-2 h-4 w-4" /> New Agent 
+            </Button> 
         </header> 
-        <div className="mt-6"> {isLoading ? <p>Loading agents...</p> : ( 
-            <div className="space-y-4"> {agents.map(agent => ( 
-                <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-center hover:bg-gray-50 dark:hover:bg-zinc-800/50"> 
-                    <div> <h3 className="font-semibold">{agent.name}</h3> <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-lg">{agent.system_prompt}</p> </div> 
-                    <DropdownMenu> <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger> <DropdownMenuContent className="dark:bg-zinc-800 dark:text-white"> <DropdownMenuItem onClick={() => onRenameAgent(agent)}><Edit className="mr-2 h-4 w-4"/> Rename</DropdownMenuItem> <DropdownMenuItem onClick={() => onEditAgent(agent)}><FilePenLine className="mr-2 h-4 w-4"/> Edit Prompt</DropdownMenuItem> <DropdownMenuSeparator/> <DropdownMenuItem className="text-red-500" onClick={() => onDeleteAgent(agent)}><Trash2 className="mr-2 h-4 w-4"/> Delete</DropdownMenuItem> </DropdownMenuContent> </DropdownMenu> 
+        <div className="mt-6"> 
+            {isLoading ? <p>Loading agents...</p> : ( 
+                <div className="space-y-4"> 
+                    {agents.map(agent => ( 
+                        <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-center hover:bg-gray-50 dark:hover:bg-zinc-800/50"> 
+                            <div> 
+                                <h3 className="font-semibold">{agent.name}</h3> 
+                                <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-lg">{agent.system_prompt}</p> 
+                            </div> 
+                            {/* --- MODIFIED BUTTON --- */}
+                            <Button variant="outline" onClick={() => onEditAgent(agent)}>
+                                Edit
+                            </Button>
+                        </div> 
+                    ))} 
                 </div> 
-            ))} </div> 
-        )} </div> 
+            )} 
+        </div> 
     </div> 
 );
