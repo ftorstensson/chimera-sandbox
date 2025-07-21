@@ -1,5 +1,5 @@
 // src/components/AppLayout.tsx
-// v2.7 - Definitive Final Corrected Version
+// v2.10 - Definitive Fix for Rollover UI Bug
 
 "use client"; 
 
@@ -32,16 +32,49 @@ const ChatModeSidebar = (props: { teams: Team[]; activeTeam: Team | null; onTeam
         <div className="flex-grow overflow-y-auto mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800">
             <p className="px-3 text-xs uppercase text-gray-500 tracking-wider">Recent Design Chats</p>
             <nav className="mt-2 space-y-1 px-2">{props.chatHistory.length > 0 ? (props.chatHistory.map(chat => (
-                <div key={chat.chatId} className={`group flex items-center rounded-md ${sidebarHoverStyle} ${props.currentChatId === chat.chatId ? sidebarSelectedStyle : ''}`}>
-                    <Button variant="ghost" className="w-full justify-start truncate flex-grow text-left" onClick={() => props.onLoadChat(chat.chatId)}>{chat.title}</Button>
-                    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 opacity-0 group-hover:opacity-100"><MoreHorizontal size={16}/></Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem onClick={() => props.onRenameChat(chat)}><Edit className="mr-2 h-4 w-4"/>Rename</DropdownMenuItem><DropdownMenuItem className="text-red-500" onClick={() => props.onDeleteChat(chat)}><Trash2 className="mr-2 h-4 w-4"/>Delete</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-                </div>))) : (<p className="px-3 py-2 text-sm text-gray-500">No chats for this team yet.</p>)}
+                <div 
+                    key={chat.chatId} 
+                    className={`group flex items-center rounded-md cursor-pointer ${sidebarHoverStyle} ${props.currentChatId === chat.chatId ? sidebarSelectedStyle : ''}`}
+                    onClick={() => props.onLoadChat(chat.chatId)}
+                >
+                    <span className="flex-grow truncate px-2 py-2">{chat.title}</span>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                                <MoreHorizontal size={16}/>
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); props.onRenameChat(chat); }}>
+                                <Edit className="mr-2 h-4 w-4"/>Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-500" onClick={(e) => { e.stopPropagation(); props.onDeleteChat(chat); }}>
+                                <Trash2 className="mr-2 h-4 w-4"/>Delete
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            ))) : (<p className="px-3 py-2 text-sm text-gray-500">No chats for this team yet.</p>)}
             </nav>
         </div>
     </div>
 );
 
-const TeamModeSidebar = (props: { teams: Team[]; onTeamSelect: (team: Team) => void; activeTeam: Team | null; onCreateTeamClick: () => void; onCreateTeamWithAIClick: () => void; }) => ( <div className="flex flex-col h-full"> <div className="p-2 flex-shrink-0"><div className="text-center mb-4"><Users className="mx-auto h-8 w-8 mb-2" /><h2 className="text-xl font-semibold">Team Building</h2><p className="text-sm text-gray-500 dark:text-gray-400">Build and manage your multi-agent teams and agents.</p></div><Button variant="outline" className={`w-full justify-start ${sidebarHoverStyle} text-indigo-500 border-indigo-500/50 hover:text-indigo-400`} onClick={props.onCreateTeamWithAIClick}><Sparkles className="mr-2 h-4 w-4" /> New Team with AI</Button><Button variant="ghost" className={`w-full justify-start mt-1 ${sidebarHoverStyle}`} onClick={props.onCreateTeamClick}><Plus className="mr-2 h-4 w-4" /> New Team (Manual)</Button></div> <div className="flex-grow overflow-y-auto mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800"><p className="px-3 text-xs uppercase text-gray-500 tracking-wider">Manage Teams & Agents</p><nav className="mt-2 space-y-1 px-2">{props.teams.map(team => (<Button key={team.teamId} variant="ghost" className={`w-full justify-start ${sidebarHoverStyle} ${props.activeTeam?.teamId === team.teamId ? sidebarSelectedStyle : ''}`} onClick={() => props.onTeamSelect(team)} >{team.name}</Button>))}</nav></div> </div> );
+const TeamModeSidebar = (props: { teams: Team[]; onTeamSelect: (team: Team | string) => void; activeTeam: Team | null; onCreateTeamClick: () => void; onCreateTeamWithAIClick: () => void; }) => ( 
+    <div className="flex flex-col h-full"> 
+        <div className="p-2 flex-shrink-0">
+            <div className="text-center mb-4"><Users className="mx-auto h-8 w-8 mb-2" /><h2 className="text-xl font-semibold">Team Building</h2><p className="text-sm text-gray-500 dark:text-gray-400">Build and manage your multi-agent teams and agents.</p></div>
+            <Button variant="outline" className={`w-full justify-start ${sidebarHoverStyle} text-indigo-500 border-indigo-500/50 hover:text-indigo-400`} onClick={props.onCreateTeamWithAIClick}><Sparkles className="mr-2 h-4 w-4" /> New Team with AI</Button>
+            <Button variant="ghost" className={`w-full justify-start mt-1 ${sidebarHoverStyle}`} onClick={props.onCreateTeamClick}><Plus className="mr-2 h-4 w-4" /> New Team (Manual)</Button>
+        </div> 
+        <div className="flex-grow overflow-y-auto mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800">
+            <p className="px-3 text-xs uppercase text-gray-500 tracking-wider">Manage Teams & Agents</p>
+            <nav className="mt-2 space-y-1 px-2">
+                {props.teams.map(team => (<Button key={team.teamId} variant="ghost" className={`w-full justify-start ${sidebarHoverStyle} ${props.activeTeam?.teamId === team.teamId ? sidebarSelectedStyle : ''}`} onClick={() => props.onTeamSelect(team)} >{team.name}</Button>))}
+            </nav>
+        </div> 
+    </div> 
+);
 
 export interface AppLayoutProps { children: React.ReactNode; activeMode: 'chat' | 'team'; setActiveMode: (mode: 'chat' | 'team') => void; teams: Team[]; chatHistory: ChatHistoryItem[]; activeTeam: Team | null; currentChatId: string | null; onSetActiveTeam: (team: Team | string) => void; onNewChat: () => void; onLoadChat: (chatId: string) => void; onCreateTeamClick: () => void; onCreateTeamWithAIClick: () => void; onRenameChat: (chat: ChatHistoryItem) => void; onDeleteChat: (chat: ChatHistoryItem) => void; }
 
