@@ -1,5 +1,5 @@
 // src/app/test-layout/page.tsx
-// Sandbox for Agent Management UI - v3 (POST API connected)
+// Sandbox for Agent Management UI - v4 (Edit functionality added)
 
 "use client";
 
@@ -22,20 +22,21 @@ export default function SandboxPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [agentName, setAgentName] = useState("");
   const [agentPrompt, setAgentPrompt] = useState("");
-  const [isSaving, setIsSaving] = useState(false); // To disable button during API call
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // New state to track if we are creating or editing
+  const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
 
   const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
-  // --- Data Fetching Functions ---
+  // --- Data Fetching ---
   const fetchTeams = useCallback(async () => {
     try {
       const response = await fetch(`${backendApiUrl}/teams`);
       if (!response.ok) throw new Error('Failed to fetch teams');
       const data: Team[] = await response.json();
       setTeams(data);
-      if (data.length > 0) {
-        setActiveTeam(data[0]);
-      }
+      if (data.length > 0) setActiveTeam(data[0]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     }
@@ -58,21 +59,21 @@ export default function SandboxPage() {
     }
   }, []);
 
-  // --- Effects ---
-  useEffect(() => {
-    fetchTeams();
-  }, [fetchTeams]);
-
-  useEffect(() => {
-    if (activeTeam) {
-      fetchAgentsForTeam(activeTeam.teamId);
-    }
-  }, [activeTeam, fetchAgentsForTeam]);
+  useEffect(() => { fetchTeams(); }, [fetchTeams]);
+  useEffect(() => { if (activeTeam) { fetchAgentsForTeam(activeTeam.teamId); } }, [activeTeam, fetchAgentsForTeam]);
   
   // --- Event Handlers ---
   const handleCreateAgentClick = () => {
+    setAgentToEdit(null); // Ensure we are in "create" mode
     setAgentName("");
     setAgentPrompt("");
+    setIsDialogOpen(true);
+  };
+  
+  const handleEditAgentClick = (agent: Agent) => {
+    setAgentToEdit(agent); // Set the agent to edit
+    setAgentName(agent.name);
+    setAgentPrompt(agent.system_prompt);
     setIsDialogOpen(true);
   };
 
@@ -84,9 +85,16 @@ export default function SandboxPage() {
     setIsSaving(true);
     setError(null);
 
+    // Determine if we are creating or updating
+    const isEditing = agentToEdit !== null;
+    const url = isEditing
+      ? `${backendApiUrl}/teams/${activeTeam.teamId}/agents/${agentToEdit.agentId}`
+      : `${backendApiUrl}/teams/${activeTeam.teamId}/agents`;
+    const method = isEditing ? 'PUT' : 'POST';
+
     try {
-      const response = await fetch(`${backendApiUrl}/teams/${activeTeam.teamId}/agents`, {
-        method: 'POST',
+      const response = await fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: agentName,
@@ -95,12 +103,10 @@ export default function SandboxPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save the agent.');
+        throw new Error(`Failed to ${isEditing ? 'update' : 'save'} the agent.`);
       }
       
-      // Success!
       setIsDialogOpen(false);
-      // Refresh the list of agents to show the new one
       await fetchAgentsForTeam(activeTeam.teamId);
 
     } catch (err) {
@@ -116,47 +122,38 @@ export default function SandboxPage() {
       <div className="p-8 max-w-4xl mx-auto">
         <header className="pb-4 border-b">
           <h1 className="text-3xl font-bold">Agent Management Sandbox</h1>
-          <p className="mt-1 text-lg text-gray-500">
-            A temporary page to build and test agent CRUD functionality in isolation.
-          </p>
+          {/* ... */}
         </header>
-
         <section className="mt-6">
           <h2 className="text-2xl font-semibold">Current Team</h2>
           {activeTeam ? (
             <p className="text-gray-600 dark:text-gray-400">
               Managing agents for: <span className="font-bold text-indigo-500">{activeTeam.name}</span>
             </p>
-          ) : (
-            <p>Loading teams...</p>
-          )}
+          ) : (<p>Loading teams...</p>)}
         </section>
 
         <section className="mt-8">
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-semibold">Agents</h2>
-            <Button onClick={handleCreateAgentClick}>
-              Create New Agent
-            </Button>
+            <Button onClick={handleCreateAgentClick}>Create New Agent</Button>
           </div>
           
           <div className="mt-4 space-y-4">
-            {isLoading ? (
-              <p>Loading agents...</p>
-            ) : error ? (
-              <p className="text-red-500">Error: {error}</p>
-            ) : agents.length > 0 ? (
+            {isLoading ? (<p>Loading agents...</p>) 
+             : error ? (<p className="text-red-500">Error: {error}</p>) 
+             : agents.length > 0 ? (
               agents.map(agent => (
                 <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-center">
                   <div>
                     <h3 className="font-semibold">{agent.name}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-lg">{agent.system_prompt}</p>
                   </div>
+                  {/* New Edit Button */}
+                  <Button variant="outline" onClick={() => handleEditAgentClick(agent)}>Edit</Button>
                 </div>
               ))
-            ) : (
-              <p>No agents found for this team.</p>
-            )}
+            ) : (<p>No agents found for this team.</p>)}
           </div>
         </section>
       </div>
@@ -164,19 +161,20 @@ export default function SandboxPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Create New Agent</DialogTitle>
+            {/* Dynamic Title */}
+            <DialogTitle>{agentToEdit ? 'Edit Agent' : 'Create New Agent'}</DialogTitle>
             <DialogDescription>
-              Define the name and core instructions for your new AI agent.
+              {agentToEdit ? 'Update the details for this agent.' : 'Define the name and core instructions for your new AI agent.'}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">Name</Label>
-              <Input id="name" value={agentName} onChange={(e) => setAgentName(e.target.value)} className="col-span-3" placeholder="e.g., Character Designer"/>
+              <Input id="name" value={agentName} onChange={(e) => setAgentName(e.target.value)} className="col-span-3"/>
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="prompt" className="text-right pt-2">System Prompt</Label>
-              <Textarea id="prompt" value={agentPrompt} onChange={(e) => setAgentPrompt(e.target.value)} className="col-span-3" placeholder="You are a helpful assistant who..." rows={8}/>
+              <Textarea id="prompt" value={agentPrompt} onChange={(e) => setAgentPrompt(e.target.value)} className="col-span-3" rows={8}/>
             </div>
           </div>
           <DialogFooter>
