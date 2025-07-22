@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v25.0 - Fixed AI Team Builder Workflow
+// v25.1 - Fixed AI Team Builder Workflow
 
 "use client";
 
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
 
+// ... (State, Types, and Reducer are unchanged) ...
 interface AppState {
     view: 'welcome' | 'chat' | 'team_management' | 'team_builder';
     teams: Team[];
@@ -95,7 +96,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         default: return state;
     }
 }
-
 export default function HomePage() {
     const [state, dispatch] = useReducer(appReducer, initialState);
     const [currentInput, setCurrentInput] = useState("");
@@ -107,32 +107,10 @@ export default function HomePage() {
     const [isSavingAgent, setIsSavingAgent] = useState(false);
     const [isDeletingAgent, setIsDeletingAgent] = useState(false);
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
-
-    const fetchTeams = useCallback(async () => {
-        try {
-            const response = await fetch(`${backendApiUrl}/teams`);
-            const data: Team[] = await response.json();
-            dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams: data } });
-            return data;
-        } catch (error) {
-            dispatch({ type: 'SET_ERROR', payload: 'Failed to fetch teams.' });
-            return [];
-        }
-    }, []);
-
-    const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
-        dispatch({ type: 'START_LOADING' });
-        try {
-            const [chatRes, agentRes] = await Promise.all([ fetch(`${backendApiUrl}/teams/${teamId}/chats`), fetch(`${backendApiUrl}/teams/${teamId}/agents`), ]);
-            const chatHistory = await chatRes.json();
-            const agents = await agentRes.json();
-            dispatch({ type: 'SELECT_TEAM_SUCCESS', payload: { chatHistory, agents } });
-        } catch (error) { dispatch({ type: 'SET_ERROR', payload: 'Failed to load team data.' }); }
-    }, []);
-
+    const fetchTeams = useCallback(async () => { try { const response = await fetch(`${backendApiUrl}/teams`); const data: Team[] = await response.json(); dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams: data } }); return data; } catch (error) { dispatch({ type: 'SET_ERROR', payload: 'Failed to fetch teams.' }); return []; } }, []);
+    const fetchDependenciesForTeam = useCallback(async (teamId: string) => { dispatch({ type: 'START_LOADING' }); try { const [chatRes, agentRes] = await Promise.all([ fetch(`${backendApiUrl}/teams/${teamId}/chats`), fetch(`${backendApiUrl}/teams/${teamId}/agents`), ]); const chatHistory = await chatRes.json(); const agents = await agentRes.json(); dispatch({ type: 'SELECT_TEAM_SUCCESS', payload: { chatHistory, agents } }); } catch (error) { dispatch({ type: 'SET_ERROR', payload: 'Failed to load team data.' }); } }, []);
     useEffect(() => { fetchTeams(); }, [fetchTeams]);
     useEffect(() => { if (state.activeTeam) { fetchDependenciesForTeam(state.activeTeam.teamId); } }, [state.activeTeam, fetchDependenciesForTeam]);
-    
     const handleSetActiveTeam = (teamOrId: Team | string) => { const teamToSelect = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId; if (teamToSelect && teamToSelect.teamId !== state.activeTeam?.teamId) { const currentMode = (state.view === 'team_management' || state.view === 'team_builder') ? 'team' : 'chat'; if (currentMode === 'team') { dispatch({ type: 'SELECT_TEAM_IN_TEAM_MODE', payload: teamToSelect }); } else { dispatch({ type: 'SELECT_TEAM_IN_CHAT_MODE', payload: teamToSelect }); } } };
     const handleModeChange = (mode: 'chat' | 'team') => { if(mode === 'team' && state.view === 'team_builder') return; dispatch({ type: 'SWITCH_MODE', payload: mode }); };
     const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
@@ -161,8 +139,8 @@ export default function HomePage() {
                 const creationResponse = await fetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(teamData) });
                 const newTeam = await creationResponse.json();
                 if (newTeam.success) {
-                    await fetchTeams(); // Refetch all teams
-                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { teamId: newTeam.teamId, name: newTeam.name } });
+                    dispatch({ type: 'CREATE_TEAM_SUCCESS', payload: { teamId: newTeam.teamId, name: newTeam.name } });
+                    // We stay in the team_builder view, allowing for more conversation
                 } else {
                    throw new Error(newTeam.error || "Team creation failed on backend.");
                 }
