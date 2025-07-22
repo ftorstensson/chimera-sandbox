@@ -1,90 +1,91 @@
 // src/components/AgentEditDialog.tsx
+// v3.0 - Synchronized with page.tsx controller logic and self-contained state
+
 "use client";
 
-import { Button } from "@/components/ui/button";
+import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import type { Agent } from "@/components/AppLayout";
 
-// Define the props that this component will accept
 export interface AgentEditDialogProps {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   agentToEdit: Agent | null;
-  onSave: (name: string, prompt: string) => Promise<void>;
-  onDelete: () => Promise<void>;
-  isSaving: boolean;
-  isDeleting: boolean;
-  agentName: string;
-  setAgentName: (name: string) => void;
-  agentPrompt: string;
-  setAgentPrompt: (prompt: string) => void;
+  onSave: (agentData: { name: string; system_prompt: string }) => Promise<void>;
+  onDelete: (agentId: string) => Promise<void>;
 }
 
-export function AgentEditDialog({
-  isOpen,
-  onOpenChange,
-  agentToEdit,
-  onSave,
-  onDelete,
-  isSaving,
-  isDeleting,
-  agentName,
-  setAgentName,
-  agentPrompt,
-  setAgentPrompt
-}: AgentEditDialogProps) {
-  
-  const handleSaveClick = () => {
-    onSave(agentName, agentPrompt);
+export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onDelete }: AgentEditDialogProps) {
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // This effect runs when the dialog is opened, populating the form
+  useEffect(() => {
+    if (agentToEdit) {
+      setName(agentToEdit.name);
+      setPrompt(agentToEdit.system_prompt);
+    } else {
+      setName("");
+      setPrompt("");
+    }
+  }, [agentToEdit]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    // Calls the parent `onSave` with the correctly shaped object
+    await onSave({ name, system_prompt: prompt });
+    setIsSaving(false);
   };
+
+  const handleDelete = async () => {
+    if (agentToEdit && agentToEdit.agentId) {
+        setIsDeleting(true);
+        // Calls the parent `onDelete` with the required agentId
+        await onDelete(agentToEdit.agentId);
+        setIsDeleting(false);
+    }
+  };
+  
+  const isNewAgent = !agentToEdit?.agentId;
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>{agentToEdit ? 'Edit Agent' : 'Create New Agent'}</DialogTitle>
+          <DialogTitle>{isNewAgent ? "Create New Agent" : "Edit Agent"}</DialogTitle>
           <DialogDescription>
-            {agentToEdit ? 'Update the details for this agent.' : 'Define the name and core instructions for your new AI agent.'}
+            Define the agent's name and its core instructions.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">Name</Label>
-            <Input 
-              id="name" 
-              value={agentName} 
-              onChange={(e) => setAgentName(e.target.value)} 
-              className="col-span-3"
-            />
+            <label htmlFor="name" className="text-right">Name</label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3" />
           </div>
           <div className="grid grid-cols-4 items-start gap-4">
-            <Label htmlFor="prompt" className="text-right pt-2">System Prompt</Label>
-            <Textarea 
-              id="prompt" 
-              value={agentPrompt} 
-              onChange={(e) => setAgentPrompt(e.target.value)} 
-              className="col-span-3" 
-              rows={8}
-            />
+            <label htmlFor="prompt" className="text-right pt-2">System Prompt</label>
+            <Textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} className="col-span-3 min-h-[200px]" />
           </div>
         </div>
-        <DialogFooter className="sm:justify-between">
-          <div>
-            {agentToEdit && (
-              <Button variant="destructive" onClick={onDelete} disabled={isDeleting || isSaving}>
-                {isDeleting ? 'Deleting...' : 'Delete Agent'}
-              </Button>
-            )}
-          </div>
-          <div className="flex space-x-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving || isDeleting}>Cancel</Button>
-            <Button onClick={handleSaveClick} disabled={isSaving || isDeleting}>
-              {isSaving ? 'Saving...' : 'Save Agent'}
-            </Button>
-          </div>
+        <DialogFooter className="flex justify-between w-full">
+            <div>
+                {!isNewAgent && (
+                    <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                        {isDeleting ? "Deleting..." : "Delete"}
+                    </Button>
+                )}
+            </div>
+            <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? "Saving..." : "Save"}
+                </Button>
+            </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
