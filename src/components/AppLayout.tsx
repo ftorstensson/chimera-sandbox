@@ -1,5 +1,5 @@
 // src/components/AppLayout.tsx
-// v2.10 - Definitive Fix for Rollover UI Bug
+// v2.11 - Added pulsating placeholder for new teams
 
 "use client"; 
 
@@ -70,7 +70,16 @@ const TeamModeSidebar = (props: { teams: Team[]; onTeamSelect: (team: Team | str
         <div className="flex-grow overflow-y-auto mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800">
             <p className="px-3 text-xs uppercase text-gray-500 tracking-wider">Manage Teams & Agents</p>
             <nav className="mt-2 space-y-1 px-2">
-                {props.teams.map(team => (<Button key={team.teamId} variant="ghost" className={`w-full justify-start ${sidebarHoverStyle} ${props.activeTeam?.teamId === team.teamId ? sidebarSelectedStyle : ''}`} onClick={() => props.onTeamSelect(team)} >{team.name}</Button>))}
+                {props.teams.map(team => (
+                    <Button 
+                        key={team.teamId} 
+                        variant="ghost" 
+                        className={`w-full justify-start ${sidebarHoverStyle} ${props.activeTeam?.teamId === team.teamId ? sidebarSelectedStyle : ''} ${team.teamId === 'wip-team' ? 'animate-pulse' : ''}`} 
+                        onClick={() => props.onTeamSelect(team)} 
+                    >
+                        {team.name}
+                    </Button>
+                ))}
             </nav>
         </div> 
     </div> 
