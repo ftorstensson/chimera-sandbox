@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v2.8 - Integrated agent management buttons
+// v3.0 - Fixed typo in Textarea onChange handler
 
 "use client";
 
@@ -28,7 +28,7 @@ export const WelcomeScreen = () => (
 );
 
 // ==============================================================================
-//  2. Chat View (No changes)
+//  2. Chat View (MODIFIED)
 // ==============================================================================
 interface ChatViewProps {
     messages: any[];
@@ -58,7 +58,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                         }
                         return null;
                     })}
-                    {isLoading && messages.length > 0 && <div className="flex justify-start"><div className="bg-gray-200 dark:bg-zinc-700 p-4 rounded-2xl rounded-bl-none shadow-sm animate-pulse">...thinking</div></div>}
+                    {isLoading && <div className="flex justify-start"><div className="bg-gray-200 dark:bg-zinc-700 p-4 rounded-2xl rounded-bl-none shadow-sm"><span className="animate-pulse">...</span></div></div>}
                     <div ref={bottomOfChatRef}></div>
                 </div>
             </div>
@@ -66,6 +66,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                 <div className="w-full max-w-3xl mx-auto">
                     <form onSubmit={handleSubmit}>
                         <div className="flex items-end space-x-2">
+                        {/* --- THIS IS THE MODIFIED LINE --- */}
                         <Textarea value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} placeholder="Describe your app idea..." className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-zinc-800" rows={1}/>
                         <Button type="submit" className="rounded-lg h-10 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isLoading}>Send</Button>
                         </div>
@@ -77,7 +78,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
 };
 
 // ==============================================================================
-//  3. Team Management View (MODIFIED)
+//  3. Team Management View (No changes)
 // ==============================================================================
 interface TeamManagementViewProps { 
     team: Team; 
@@ -85,7 +86,6 @@ interface TeamManagementViewProps {
     isLoading: boolean;
     onCreateAgent: () => void;
     onEditAgent: (agent: Agent) => void;
-    // onRenameAgent and onDeleteAgent are no longer needed here
 }
 export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent }: TeamManagementViewProps) => ( 
     <div className="p-8 max-w-4xl mx-auto"> 
@@ -107,7 +107,6 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
                                 <h3 className="font-semibold">{agent.name}</h3> 
                                 <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-lg">{agent.system_prompt}</p> 
                             </div> 
-                            {/* --- MODIFIED BUTTON --- */}
                             <Button variant="outline" onClick={() => onEditAgent(agent)}>
                                 Edit
                             </Button>

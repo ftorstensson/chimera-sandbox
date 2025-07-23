@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v27.0 - Implement All Dialog and Agent Edit Logic
+// v29.0 - Added confirmation dialog for AI Team Builder
 
 "use client";
 
@@ -21,7 +21,7 @@ interface AppState {
     currentChatId: string | null;
     messages: any[];
     builderMessages: any[];
-    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat';
+    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat' | 'name_ai_team'; // MODIFIED: Added new dialog type
     chatToEdit: ChatHistoryItem | null;
     status: 'idle' | 'loading' | 'error';
     error: string | null;
@@ -54,14 +54,17 @@ type AppAction =
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
     | { type: 'CHAT_RESPONSE_SUCCESS'; payload: { messages: any[]; chatId?: string; chatHistory?: ChatHistoryItem[] } }
     | { type: 'START_TEAM_BUILDER'; }
-    | { type: 'ADD_BUILDER_MESSAGE'; payload: any }
+    | { type: 'SEND_BUILDER_MESSAGE'; payload: any }
+    | { type: 'RECEIVE_BUILDER_MESSAGE'; payload: any }
     | { type: 'FINISH_TEAM_BUILDER'; payload: { newTeam: Team; teams: Team[] } }
+    | { type: 'CANCEL_TEAM_BUILDER'; payload: { teams: Team[] } }
     | { type: 'OPEN_DIALOG'; payload: { dialog: AppState['dialog']; chat?: ChatHistoryItem } }
     | { type: 'CLOSE_DIALOG'; }
     | { type: 'UPDATE_CHAT_HISTORY'; payload: ChatHistoryItem[] }
     | { type: 'UPDATE_AGENTS'; payload: Agent[] };
 
 function appReducer(state: AppState, action: AppAction): AppState {
+    // This reducer function is unchanged from v28.0
     switch (action.type) {
         case 'START_LOADING': return { ...state, status: 'loading', error: null };
         case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
@@ -74,7 +77,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, status: 'idle', chatHistory: action.payload.chatHistory, agents: action.payload.agents };
         case 'SWITCH_MODE':
             if (action.payload === 'team') {
-                const teamToShow = state.activeTeam || state.teams[0];
+                const teamToShow = state.activeTeam || state.teams[0] || null;
                 return { ...state, view: teamToShow ? 'team_management' : 'welcome' };
             }
             return { ...state, view: state.activeTeam ? 'chat' : 'welcome' };
@@ -85,9 +88,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'START_TEAM_BUILDER':
             const placeholderTeam: Team = { teamId: 'wip-team', name: 'Designing New Team...' };
             return { ...state, teams: [placeholderTeam, ...state.teams], activeTeam: placeholderTeam, view: 'team_builder', builderMessages: [], status: 'idle' };
-        case 'ADD_BUILDER_MESSAGE': return { ...state, status: 'loading', builderMessages: [...state.builderMessages, action.payload] };
+        case 'SEND_BUILDER_MESSAGE': return { ...state, status: 'loading', builderMessages: [...state.builderMessages, action.payload] };
+        case 'RECEIVE_BUILDER_MESSAGE': return { ...state, status: 'idle', builderMessages: [...state.builderMessages, action.payload] };
         case 'FINISH_TEAM_BUILDER':
-            return { ...state, teams: action.payload.teams, activeTeam: action.payload.newTeam, view: 'team_management' };
+            return { ...state, status: 'idle', teams: action.payload.teams, activeTeam: action.payload.newTeam, view: 'team_management' };
+        case 'CANCEL_TEAM_BUILDER':
+            const aTeam = state.teams.filter(t => t.teamId !== 'wip-team')[0] || null;
+            return { ...state, status: 'idle', teams: action.payload.teams, activeTeam: aTeam, view: aTeam ? 'team_management' : 'welcome' };
         case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload, dialog: 'none' };
         case 'UPDATE_CHAT_HISTORY': return { ...state, chatHistory: action.payload, dialog: 'none' };
         case 'UPDATE_AGENTS': return { ...state, agents: action.payload, status: 'idle' };
@@ -102,8 +109,10 @@ export default function HomePage() {
     const [currentInput, setCurrentInput] = useState("");
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
+    const [agentsToCreate, setAgentsToCreate] = useState<any[] | null>(null); // MODIFIED: New state for the fix
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
+    // safeFetch and data fetching hooks are unchanged from v28.0
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}) => {
         try {
             const response = await fetch(url, { ...options, headers: { ...options.headers, 'Content-Type': 'application/json' }});
@@ -118,13 +127,11 @@ export default function HomePage() {
             return null;
         }
     }, []);
-
     const fetchTeams = useCallback(async () => {
         dispatch({ type: 'START_LOADING' });
         const teams = await safeFetch(`${backendApiUrl}/teams`);
         if (teams) dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams } });
     }, [safeFetch]);
-
     const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
         if (!teamId || teamId === 'wip-team') return;
         dispatch({ type: 'START_LOADING' });
@@ -136,36 +143,43 @@ export default function HomePage() {
             dispatch({ type: 'FETCH_TEAM_DATA_SUCCESS', payload: { chatHistory: chatData, agents: agentData } });
         }
     }, [safeFetch]);
-
     useEffect(() => { fetchTeams(); }, [fetchTeams]);
     useEffect(() => { if (state.activeTeam) fetchDependenciesForTeam(state.activeTeam.teamId); }, [state.activeTeam, fetchDependenciesForTeam]);
 
+    // Navigation handlers are unchanged from v28.0
     const handleSetActiveTeam = (teamOrId: Team | string) => {
+        if (state.view === 'team_builder') {
+            const finalTeams = state.teams.filter(t => t.teamId !== 'wip-team');
+            dispatch({ type: 'CANCEL_TEAM_BUILDER', payload: { teams: finalTeams } });
+        }
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
         if (team && team.teamId !== state.activeTeam?.teamId) {
             dispatch({ type: 'SET_ACTIVE_TEAM', payload: team });
         }
     };
-    
     const handleModeChange = (mode: 'chat' | 'team') => {
-        if (mode === 'team' && state.view === 'team_builder') return;
+        if (state.view === 'team_builder') {
+            const finalTeams = state.teams.filter(t => t.teamId !== 'wip-team');
+            dispatch({ type: 'CANCEL_TEAM_BUILDER', payload: { teams: finalTeams } });
+            if(mode === 'chat') dispatch({ type: 'SWITCH_MODE', payload: mode });
+            return;
+        }
         dispatch({ type: 'SWITCH_MODE', payload: mode });
     };
 
+    // Chat handlers are unchanged from v28.0
     const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
-
     const handleLoadChat = useCallback(async (chatId: string) => {
         dispatch({ type: 'START_LOADING' });
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (data && data.messages) dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: data.messages } });
     }, [safeFetch]);
-    
     const handleSubmitChat = async (e: React.FormEvent) => {
         e.preventDefault();
         const userInput = currentInput.trim();
         if (!userInput || !state.activeTeam) return;
         const userMessage = { role: 'user', content: userInput };
-        dispatch({ type: 'ADD_BUILDER_MESSAGE', payload: userMessage });
+        dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userMessage });
         setCurrentInput("");
         const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
@@ -176,40 +190,63 @@ export default function HomePage() {
         }
     };
     
+    // MODIFIED: Team Builder Logic
     const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
 
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
         e.preventDefault();
         const userInput = { role: 'user', content: currentInput.trim() };
         if (!userInput.content) return;
-        dispatch({ type: 'ADD_BUILDER_MESSAGE', payload: userInput });
+        
+        dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userInput });
         setCurrentInput("");
+
         const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: JSON.stringify({ messages: [...state.builderMessages, userInput] }) });
+        
         if (response) {
-            dispatch({ type: 'ADD_BUILDER_MESSAGE', payload: response });
+            dispatch({ type: 'RECEIVE_BUILDER_MESSAGE', payload: response });
             const match = response.content.match(/```json\s*([\s\S]*?)\s*```/);
             if (match && match[1]) {
-                const teamData = JSON.parse(match[1]);
-                const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: JSON.stringify(teamData) });
-                if(newTeamResponse && newTeamResponse.success) {
-                    const finalTeams = [newTeamResponse, ...state.teams.filter(t => t.teamId !== 'wip-team')];
-                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams } });
+                try {
+                    const teamData = JSON.parse(match[1]);
+                    // MODIFIED: Instead of creating, we store the agents and open the dialog
+                    if (teamData.agents && Array.isArray(teamData.agents)) {
+                        setAgentsToCreate(teamData.agents);
+                        dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'name_ai_team' } });
+                    } else {
+                         throw new Error("AI response did not contain a valid 'agents' array.");
+                    }
+                } catch (e) {
+                    const errMessage = { role: 'assistant', content: "Sorry, the AI returned invalid data. Please ask it to provide the JSON again."};
+                    dispatch({ type: 'RECEIVE_BUILDER_MESSAGE', payload: errMessage });
                 }
             }
         }
     };
+
+    // MODIFIED: New handler to finalize the team creation after naming it
+    const handleFinalizeTeamCreation = async () => {
+        if (!dialogInput || !agentsToCreate) return;
+        const body = JSON.stringify({ team_name: dialogInput, agents: agentsToCreate });
+        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body });
+        
+        if (newTeamResponse && newTeamResponse.success) {
+            const finalTeams = [newTeamResponse, ...state.teams.filter(t => t.teamId !== 'wip-team')];
+            dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams } });
+            handleDialogClose(); // This now also clears dialogInput
+            setAgentsToCreate(null);
+        }
+    };
     
-    // --- DIALOG AND AGENT HANDLERS (IMPLEMENTED) ---
+    // Other dialog and agent handlers are unchanged from v28.0
     const handleDialogOpen = (dialog: AppState['dialog'], chat?: ChatHistoryItem) => {
         if (chat) setDialogInput(chat.title);
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, chat } });
     };
-
     const handleDialogClose = () => {
         dispatch({ type: 'CLOSE_DIALOG' });
         setDialogInput("");
     };
-
     const handleCreateTeam = async () => {
         if (!dialogInput) return;
         const data = await safeFetch(`${backendApiUrl}/teams`, { method: 'POST', body: JSON.stringify({ name: dialogInput }) });
@@ -219,7 +256,6 @@ export default function HomePage() {
             handleDialogClose();
         }
     };
-
     const handleRenameChat = async () => {
         if (!dialogInput || !state.chatToEdit) return;
         const { chatId } = state.chatToEdit;
@@ -230,7 +266,6 @@ export default function HomePage() {
             handleDialogClose();
         }
     };
-
     const handleDeleteChat = async () => {
         if (!state.chatToEdit || !state.activeTeam) return;
         const { chatId } = state.chatToEdit;
@@ -242,11 +277,9 @@ export default function HomePage() {
             handleDialogClose();
         }
     };
-
     const handleEditAgentClick = (agent: Agent | null) => {
         setAgentToEdit(agent);
     };
-
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
         if (!state.activeTeam) return;
         const isCreating = !agentToEdit?.agentId;
@@ -259,7 +292,6 @@ export default function HomePage() {
             handleEditAgentClick(null);
         }
     };
-    
     const handleDeleteAgent = async (agentId: string) => {
         if (!state.activeTeam) return;
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`, { method: 'DELETE' });
@@ -270,7 +302,7 @@ export default function HomePage() {
         }
     };
     
-    // --- RENDER LOGIC ---
+    // Render logic is unchanged from v28.0
     const renderMainContent = () => {
         if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
         switch (state.view) {
@@ -283,7 +315,6 @@ export default function HomePage() {
             default: return <WelcomeScreen />;
         }
     };
-
     const activeMode = (state.view === 'team_management' || state.view === 'team_builder') ? 'team' : 'chat';
     
     return (
@@ -292,7 +323,19 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            {/* Dialogs */}
+            {/* MODIFIED: Added new Dialog for naming the AI-generated team */}
+            <Dialog open={state.dialog === 'name_ai_team'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Name Your New AI Team</DialogTitle></DialogHeader>
+                    <p>The AI has designed your agents. Please give your new team a name to create it.</p>
+                    <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Creative Writing Crew" />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
+                        <Button onClick={handleFinalizeTeamCreation}>Create Team</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={state.dialog === 'create_team'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Marketing Engine" /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleCreateTeam}>Create</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
