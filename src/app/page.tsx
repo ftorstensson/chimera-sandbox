@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v35.1 - Fixed uncontrolled input bug for new agents
+// v36.1 - Restored Missing Function Logic
 
 "use client";
 
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
 import { Users } from 'lucide-react';
 
-// --- Interfaces and State Definitions (Unchanged) ---
+// --- Interfaces and State Definitions ---
 interface AppState {
     view: 'welcome' | 'chat' | 'team_management' | 'team_builder';
     teams: Team[];
@@ -24,7 +24,7 @@ interface AppState {
     currentChatId: string | null;
     messages: any[];
     builderMessages: any[];
-    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat' | 'delete_agent';
+    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent';
     chatToEdit: ChatHistoryItem | null;
     agentToDelete: Agent | null;
     status: 'idle' | 'loading' | 'error';
@@ -72,7 +72,6 @@ type AppAction =
     | { type: 'UPDATE_AGENTS'; payload: Agent[] };
 
 function appReducer(state: AppState, action: AppAction): AppState {
-    // Reducer is unchanged
     switch (action.type) {
         case 'START_LOADING': return { ...state, status: 'loading', error: null };
         case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
@@ -127,7 +126,6 @@ export default function HomePage() {
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
-    // Data fetching and basic handlers are unchanged
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}) => {
         try {
             const response = await fetch(url, { ...options, headers: { ...options.headers, 'Content-Type': 'application/json' }});
@@ -142,14 +140,19 @@ export default function HomePage() {
             return null;
         }
     }, []);
+    
     const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
         if (!teamId) return;
         dispatch({ type: 'START_LOADING' });
-        const agentData = await safeFetch(`${backendApiUrl}/teams/${teamId}/agents`);
-        if (agentData !== null) {
-            dispatch({ type: 'FETCH_TEAM_DATA_SUCCESS', payload: { chatHistory: [], agents: agentData } });
+        const [chatHistory, agents] = await Promise.all([
+            safeFetch(`${backendApiUrl}/teams/${teamId}/chats`),
+            safeFetch(`${backendApiUrl}/teams/${teamId}/agents`)
+        ]);
+        if (chatHistory !== null && agents !== null) {
+            dispatch({ type: 'FETCH_TEAM_DATA_SUCCESS', payload: { chatHistory, agents } });
         }
     }, [safeFetch]);
+    
     const loadInitialData = useCallback(async () => {
         dispatch({ type: 'START_LOADING' });
         const [teams, designSessions] = await Promise.all([
@@ -160,8 +163,14 @@ export default function HomePage() {
             dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams, designSessions } });
         }
     }, [safeFetch]);
+
     useEffect(() => { loadInitialData(); }, [loadInitialData]);
-    useEffect(() => { if (state.activeTeam) fetchDependenciesForTeam(state.activeTeam.teamId); }, [state.activeTeam, fetchDependenciesForTeam]);
+    useEffect(() => {
+        if (state.activeTeam) {
+            fetchDependenciesForTeam(state.activeTeam.teamId);
+        }
+    }, [state.activeTeam, fetchDependenciesForTeam]);
+
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
         if (!team) return;
@@ -172,39 +181,112 @@ export default function HomePage() {
             if (state.activeTeam?.teamId !== team.teamId) dispatch({ type: 'SET_ACTIVE_TEAM_FOR_CHAT', payload: team });
         }
     };
+    
     const handleModeChange = (mode: 'chat' | 'team') => {
         dispatch({ type: 'SWITCH_MODE', payload: mode });
     };
+    
     const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
+    
     const handleLoadChat = useCallback(async (chatId: string) => {
         dispatch({ type: 'START_LOADING' });
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (data && data.messages) dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: data.messages } });
     }, [safeFetch]);
-    const handleSubmitChat = async (e: React.FormEvent) => { /* ... */ };
-    const handleStartTeamBuilder = async () => { /* ... */ };
-    const handleLoadDesignSession = (session: DesignSession) => { /* ... */ };
-    const handleSubmitTeamBuilder = async (e: React.FormEvent) => { /* ... */ };
+    
+    const handleSubmitChat = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const userInput = currentInput.trim();
+        if (!userInput || !state.activeTeam) return;
+        const userMessage = { role: 'user', content: userInput };
+        dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userMessage });
+        setCurrentInput("");
+        const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
+        const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
+        if (data) {
+            const needsHistoryRefresh = !state.currentChatId;
+            const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
+            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
+        }
+    };
+    
+    const handleStartTeamBuilder = async () => {
+        const sessionData = await safeFetch(`${backendApiUrl}/team-builder/session`, { method: 'POST' });
+        if (sessionData) dispatch({ type: 'START_NEW_DESIGN_SESSION_SUCCESS', payload: sessionData });
+    };
+    
+    const handleLoadDesignSession = (session: DesignSession) => {
+        dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
+    };
+    
+    const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const userInput = { role: 'user', content: currentInput.trim() };
+        if (!userInput.content || !state.activeDesignSession) return;
+        const currentMessages = state.builderMessages;
+        dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userInput });
+        setCurrentInput("");
+        const body = JSON.stringify({ messages: [...currentMessages, userInput], designSessionId: state.activeDesignSession.designSessionId });
+        const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
+        if (response) {
+            dispatch({ type: 'RECEIVE_BUILDER_MESSAGE', payload: { message: response, designSessionId: state.activeDesignSession.designSessionId } });
+            const content = response.content.trim();
+            const match = content.match(/^```json\s*([\s\S]*?)\s*```$/);
+            if (match && match[1]) {
+                try {
+                    const teamData = JSON.parse(match[1]);
+                    if (teamData.team_name && teamData.agents && Array.isArray(teamData.agents)) {
+                        const createBody = JSON.stringify({ ...teamData, designSessionId: state.activeDesignSession.designSessionId });
+                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
+                        if(newTeamResponse && newTeamResponse.success) {
+                            const finalTeams = [newTeamResponse, ...state.teams];
+                            const finalDesignSessions = state.designSessions.filter(s => s.designSessionId !== state.activeDesignSession?.designSessionId);
+                            dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams, designSessions: finalDesignSessions } });
+                        }
+                    }
+                } catch (e) {
+                    console.log("AI provided non-fatal invalid JSON.");
+                }
+            }
+        }
+    };
+    
     const handleDialogOpen = (dialog: AppState['dialog'], options?: { chat?: ChatHistoryItem, agent?: Agent }) => {
         if (options?.chat) setDialogInput(options.chat.title);
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, ...options } });
     };
+    
     const handleDialogClose = () => {
         dispatch({ type: 'CLOSE_DIALOG' });
         setDialogInput("");
     };
-    const handleCreateTeam = async () => { /* ... */ };
-    const handleRenameChat = async () => { /* ... */ };
-    const handleDeleteChat = async () => { /* ... */ };
-
-    // --- MODIFIED: This is the fix ---
-    const handleEditAgentClick = (agent: Agent | null) => {
-        // When creating a new agent, ensure the prompt is an empty string
-        if (agent && !agent.agentId) {
-            setAgentToEdit({ ...agent, system_prompt: '' });
-        } else {
-            setAgentToEdit(agent);
+    
+    const handleRenameChat = async () => {
+        if (!dialogInput || !state.chatToEdit) return;
+        const { chatId } = state.chatToEdit;
+        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}/rename`, { method: 'POST', body: JSON.stringify({ new_title: dialogInput }) });
+        if (data && data.success) {
+            const newHistory = state.chatHistory.map(c => c.chatId === chatId ? { ...c, title: dialogInput } : c);
+            dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
+            handleDialogClose();
         }
+    };
+    
+    const handleDeleteChat = async () => {
+        if (!state.chatToEdit || !state.activeTeam) return;
+        const { chatId } = state.chatToEdit;
+        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`, { method: 'DELETE' });
+        if (data && data.success) {
+            const newHistory = state.chatHistory.filter(c => c.chatId !== chatId);
+            dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
+            if (state.currentChatId === chatId) dispatch({ type: 'START_NEW_CHAT' });
+            handleDialogClose();
+        }
+    };
+    
+    const handleEditAgentClick = (agent: Agent | null) => {
+        if (agent && !agent.agentId) setAgentToEdit({ ...agent, system_prompt: '' });
+        else setAgentToEdit(agent);
     };
     
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
@@ -219,9 +301,11 @@ export default function HomePage() {
             handleEditAgentClick(null);
         }
     };
+    
     const handleDeleteAgent = async (agent: Agent) => {
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
     };
+    
     const handleConfirmDeleteAgent = async () => {
         if (!state.activeTeam || !state.agentToDelete) return;
         const { agentId } = state.agentToDelete;
@@ -267,7 +351,6 @@ export default function HomePage() {
                 onSetActiveTeam={handleSetActiveTeam}
                 onNewChat={handleNewChat}
                 onLoadChat={handleLoadChat}
-                onCreateTeamClick={() => handleDialogOpen('create_team')}
                 onCreateTeamWithAIClick={handleStartTeamBuilder}
                 onLoadDesignSession={handleLoadDesignSession}
                 onRenameChat={(chat) => handleDialogOpen('rename_chat', { chat })}
@@ -275,10 +358,8 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            <Dialog open={state.dialog === 'create_team'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Marketing Engine" /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleCreateTeam}>Create</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
-            
             <Dialog open={state.dialog === 'delete_agent'} onOpenChange={handleDialogClose}>
                 <DialogContent>
                     <DialogHeader><DialogTitle>Delete Agent</DialogTitle></DialogHeader>
@@ -289,7 +370,7 @@ export default function HomePage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
+            
             <AgentEditDialog isOpen={!!agentToEdit} onOpenChange={(isOpen) => { if (!isOpen) handleEditAgentClick(null); }} agentToEdit={agentToEdit} onSave={handleSaveAgent} onDelete={handleDeleteAgent} />
         </>
     );

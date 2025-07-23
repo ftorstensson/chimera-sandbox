@@ -1,5 +1,5 @@
 // src/components/AppLayout.tsx
-// v3.0 - Added "In Progress" section for multiple team designs
+// v3.1 - Removed Manual Team Creation Button
 
 "use client"; 
 
@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MessageSquare, Users, Plus, Settings, Sun, Moon, Menu, Sparkles, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 
-// --- MODIFIED: Added DesignSession interface ---
 export interface DesignSession { designSessionId: string; name: string; messages: any[]; }
 export interface Team { teamId: string; name: string; }
 export interface ChatHistoryItem { chatId: string; title: string; }
@@ -49,16 +48,15 @@ const ChatModeSidebar = (props: { teams: Team[]; activeTeam: Team | null; onTeam
     </div>
 );
 
-// --- MODIFIED: TeamModeSidebar now renders in-progress designs ---
-const TeamModeSidebar = (props: { teams: Team[]; designSessions: DesignSession[]; onTeamSelect: (team: Team | string) => void; activeTeam: Team | null; onCreateTeamClick: () => void; onCreateTeamWithAIClick: () => void; onLoadDesignSession: (session: DesignSession) => void; }) => ( 
+// --- MODIFIED: TeamModeSidebar ---
+const TeamModeSidebar = (props: { teams: Team[]; designSessions: DesignSession[]; onTeamSelect: (team: Team | string) => void; activeTeam: Team | null; onCreateTeamWithAIClick: () => void; onLoadDesignSession: (session: DesignSession) => void; }) => ( 
     <div className="flex flex-col h-full"> 
         <div className="p-2 flex-shrink-0">
             <div className="text-center mb-4"><Users className="mx-auto h-8 w-8 mb-2" /><h2 className="text-xl font-semibold">Team Building</h2><p className="text-sm text-gray-500 dark:text-gray-400">Build and manage your multi-agent teams and agents.</p></div>
+            {/* --- THIS IS THE MODIFIED LINE --- */}
             <Button variant="outline" className={`w-full justify-start ${sidebarHoverStyle} text-indigo-500 border-indigo-500/50 hover:text-indigo-400`} onClick={props.onCreateTeamWithAIClick}><Sparkles className="mr-2 h-4 w-4" /> New Team with AI</Button>
-            <Button variant="ghost" className={`w-full justify-start mt-1 ${sidebarHoverStyle}`} onClick={props.onCreateTeamClick}><Plus className="mr-2 h-4 w-4" /> New Team (Manual)</Button>
         </div> 
 
-        {/* --- NEW SECTION for In-Progress Designs --- */}
         {props.designSessions.length > 0 && (
             <div className="flex-shrink-0 mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800">
                 <p className="px-3 text-xs uppercase text-gray-500 tracking-wider">In Progress</p>
@@ -85,7 +83,7 @@ const TeamModeSidebar = (props: { teams: Team[]; designSessions: DesignSession[]
     </div> 
 );
 
-// --- MODIFIED: AppLayoutProps includes new properties ---
+// --- MODIFIED: AppLayoutProps ---
 export interface AppLayoutProps { 
     children: React.ReactNode; 
     activeMode: 'chat' | 'team'; 
@@ -98,7 +96,7 @@ export interface AppLayoutProps {
     onSetActiveTeam: (team: Team | string) => void; 
     onNewChat: () => void; 
     onLoadChat: (chatId: string) => void; 
-    onCreateTeamClick: () => void; 
+    // MODIFIED: Removed onCreateTeamClick
     onCreateTeamWithAIClick: () => void; 
     onLoadDesignSession: (session: DesignSession) => void;
     onRenameChat: (chat: ChatHistoryItem) => void; 
@@ -111,7 +109,7 @@ const AppLayoutContent = (props: AppLayoutProps) => {
   
   return (
     <div className="flex h-screen bg-white dark:bg-[#171719] text-gray-900 dark:text-gray-100">
-      <aside className={`flex flex-col flex-shrink-0 bg-gray-100 dark:bg-[#141415] transition-all duration-300 ${isSidebarOpen ? 'w-72 p-2' : 'w-0 border-0 p-0'}`}>
+      <aside className={`flex flex-col flex-shrink-0 bg-gray-100 dark:bg-[#141415] transition-all duration-300 ${isSidebarOpen ? 'w-72 p-2' : '0'}`}>
         <div className="flex flex-col flex-grow overflow-hidden">
             <div className={`flex-shrink-0 p-2 transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
                 <ToggleGroup type="single" value={props.activeMode} onValueChange={(value) => { if (value) props.setActiveMode(value as 'chat' | 'team'); }} className="w-full grid grid-cols-2"> <ToggleGroupItem value="chat" aria-label="Toggle chat mode" className={props.activeMode === 'chat' ? sidebarSelectedStyle : sidebarHoverStyle}>CHAT</ToggleGroupItem> <ToggleGroupItem value="team" aria-label="Toggle team mode" className={props.activeMode === 'team' ? sidebarSelectedStyle : sidebarHoverStyle}>TEAM</ToggleGroupItem> </ToggleGroup> 
