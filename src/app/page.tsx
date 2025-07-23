@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v29.0 - Added confirmation dialog for AI Team Builder
+// v30.0 - Streamlined AI Team Builder to use AI-generated name
 
 "use client";
 
@@ -21,7 +21,7 @@ interface AppState {
     currentChatId: string | null;
     messages: any[];
     builderMessages: any[];
-    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat' | 'name_ai_team'; // MODIFIED: Added new dialog type
+    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat'; // MODIFIED: Removed 'name_ai_team'
     chatToEdit: ChatHistoryItem | null;
     status: 'idle' | 'loading' | 'error';
     error: string | null;
@@ -64,7 +64,7 @@ type AppAction =
     | { type: 'UPDATE_AGENTS'; payload: Agent[] };
 
 function appReducer(state: AppState, action: AppAction): AppState {
-    // This reducer function is unchanged from v28.0
+    // This reducer is unchanged from v28.0/v29.0
     switch (action.type) {
         case 'START_LOADING': return { ...state, status: 'loading', error: null };
         case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
@@ -109,10 +109,9 @@ export default function HomePage() {
     const [currentInput, setCurrentInput] = useState("");
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
-    const [agentsToCreate, setAgentsToCreate] = useState<any[] | null>(null); // MODIFIED: New state for the fix
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
-    // safeFetch and data fetching hooks are unchanged from v28.0
+    // safeFetch and data fetching hooks are unchanged
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}) => {
         try {
             const response = await fetch(url, { ...options, headers: { ...options.headers, 'Content-Type': 'application/json' }});
@@ -146,7 +145,7 @@ export default function HomePage() {
     useEffect(() => { fetchTeams(); }, [fetchTeams]);
     useEffect(() => { if (state.activeTeam) fetchDependenciesForTeam(state.activeTeam.teamId); }, [state.activeTeam, fetchDependenciesForTeam]);
 
-    // Navigation handlers are unchanged from v28.0
+    // Navigation and chat handlers are unchanged
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         if (state.view === 'team_builder') {
             const finalTeams = state.teams.filter(t => t.teamId !== 'wip-team');
@@ -166,8 +165,6 @@ export default function HomePage() {
         }
         dispatch({ type: 'SWITCH_MODE', payload: mode });
     };
-
-    // Chat handlers are unchanged from v28.0
     const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
     const handleLoadChat = useCallback(async (chatId: string) => {
         dispatch({ type: 'START_LOADING' });
@@ -209,12 +206,15 @@ export default function HomePage() {
             if (match && match[1]) {
                 try {
                     const teamData = JSON.parse(match[1]);
-                    // MODIFIED: Instead of creating, we store the agents and open the dialog
-                    if (teamData.agents && Array.isArray(teamData.agents)) {
-                        setAgentsToCreate(teamData.agents);
-                        dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'name_ai_team' } });
+                    // MODIFIED: Check for team_name and agents, then create directly
+                    if (teamData.team_name && teamData.agents && Array.isArray(teamData.agents)) {
+                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: JSON.stringify(teamData) });
+                        if(newTeamResponse && newTeamResponse.success) {
+                            const finalTeams = [newTeamResponse, ...state.teams.filter(t => t.teamId !== 'wip-team')];
+                            dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams } });
+                        }
                     } else {
-                         throw new Error("AI response did not contain a valid 'agents' array.");
+                         throw new Error("AI response did not contain a valid 'team_name' and 'agents' array.");
                     }
                 } catch (e) {
                     const errMessage = { role: 'assistant', content: "Sorry, the AI returned invalid data. Please ask it to provide the JSON again."};
@@ -224,21 +224,7 @@ export default function HomePage() {
         }
     };
 
-    // MODIFIED: New handler to finalize the team creation after naming it
-    const handleFinalizeTeamCreation = async () => {
-        if (!dialogInput || !agentsToCreate) return;
-        const body = JSON.stringify({ team_name: dialogInput, agents: agentsToCreate });
-        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body });
-        
-        if (newTeamResponse && newTeamResponse.success) {
-            const finalTeams = [newTeamResponse, ...state.teams.filter(t => t.teamId !== 'wip-team')];
-            dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams } });
-            handleDialogClose(); // This now also clears dialogInput
-            setAgentsToCreate(null);
-        }
-    };
-    
-    // Other dialog and agent handlers are unchanged from v28.0
+    // Other handlers are unchanged
     const handleDialogOpen = (dialog: AppState['dialog'], chat?: ChatHistoryItem) => {
         if (chat) setDialogInput(chat.title);
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, chat } });
@@ -302,7 +288,7 @@ export default function HomePage() {
         }
     };
     
-    // Render logic is unchanged from v28.0
+    // Render logic is unchanged
     const renderMainContent = () => {
         if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
         switch (state.view) {
@@ -323,19 +309,7 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            {/* MODIFIED: Added new Dialog for naming the AI-generated team */}
-            <Dialog open={state.dialog === 'name_ai_team'} onOpenChange={handleDialogClose}>
-                <DialogContent>
-                    <DialogHeader><DialogTitle>Name Your New AI Team</DialogTitle></DialogHeader>
-                    <p>The AI has designed your agents. Please give your new team a name to create it.</p>
-                    <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Creative Writing Crew" />
-                    <DialogFooter>
-                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
-                        <Button onClick={handleFinalizeTeamCreation}>Create Team</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
+            {/* MODIFIED: Removed the 'name_ai_team' Dialog */}
             <Dialog open={state.dialog === 'create_team'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Marketing Engine" /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleCreateTeam}>Create</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
