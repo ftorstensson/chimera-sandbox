@@ -1,5 +1,5 @@
 // src/components/AgentEditDialog.tsx
-// v3.0 - Synchronized with page.tsx controller logic and self-contained state
+// v3.1 - Modified to trigger confirmation dialog on delete
 
 "use client";
 
@@ -15,16 +15,14 @@ export interface AgentEditDialogProps {
   onOpenChange: (isOpen: boolean) => void;
   agentToEdit: Agent | null;
   onSave: (agentData: { name: string; system_prompt: string }) => Promise<void>;
-  onDelete: (agentId: string) => Promise<void>;
+  onDelete: (agent: Agent) => void; // MODIFIED: This now passes the full agent object
 }
 
 export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onDelete }: AgentEditDialogProps) {
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
 
-  // This effect runs when the dialog is opened, populating the form
   useEffect(() => {
     if (agentToEdit) {
       setName(agentToEdit.name);
@@ -37,24 +35,21 @@ export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onD
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Calls the parent `onSave` with the correctly shaped object
     await onSave({ name, system_prompt: prompt });
     setIsSaving(false);
   };
 
-  const handleDelete = async () => {
-    if (agentToEdit && agentToEdit.agentId) {
-        setIsDeleting(true);
-        // Calls the parent `onDelete` with the required agentId
-        await onDelete(agentToEdit.agentId);
-        setIsDeleting(false);
+  // MODIFIED: This function now just calls the parent onDelete with the agent object
+  const handleDelete = () => {
+    if (agentToEdit) {
+        onDelete(agentToEdit);
     }
   };
   
   const isNewAgent = !agentToEdit?.agentId;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpen-change={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>{isNewAgent ? "Create New Agent" : "Edit Agent"}</DialogTitle>
@@ -75,8 +70,8 @@ export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onD
         <DialogFooter className="flex justify-between w-full">
             <div>
                 {!isNewAgent && (
-                    <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                        {isDeleting ? "Deleting..." : "Delete"}
+                    <Button variant="destructive" onClick={handleDelete}>
+                        Delete
                     </Button>
                 )}
             </div>
