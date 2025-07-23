@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v30.0 - Streamlined AI Team Builder to use AI-generated name
+// v31.0 - Implemented Persistent AI Team Builder Sessions
 
 "use client";
 
@@ -21,7 +21,7 @@ interface AppState {
     currentChatId: string | null;
     messages: any[];
     builderMessages: any[];
-    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat'; // MODIFIED: Removed 'name_ai_team'
+    dialog: 'none' | 'create_team' | 'rename_chat' | 'delete_chat';
     chatToEdit: ChatHistoryItem | null;
     status: 'idle' | 'loading' | 'error';
     error: string | null;
@@ -53,7 +53,8 @@ type AppAction =
     | { type: 'START_NEW_CHAT'; }
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
     | { type: 'CHAT_RESPONSE_SUCCESS'; payload: { messages: any[]; chatId?: string; chatHistory?: ChatHistoryItem[] } }
-    | { type: 'START_TEAM_BUILDER'; }
+    | { type: 'START_TEAM_BUILDER_UI'; } // MODIFIED: Renamed for clarity
+    | { type: 'START_TEAM_BUILDER_SUCCESS'; payload: { messages: any[] } } // MODIFIED: New action
     | { type: 'SEND_BUILDER_MESSAGE'; payload: any }
     | { type: 'RECEIVE_BUILDER_MESSAGE'; payload: any }
     | { type: 'FINISH_TEAM_BUILDER'; payload: { newTeam: Team; teams: Team[] } }
@@ -64,7 +65,6 @@ type AppAction =
     | { type: 'UPDATE_AGENTS'; payload: Agent[] };
 
 function appReducer(state: AppState, action: AppAction): AppState {
-    // This reducer is unchanged from v28.0/v29.0
     switch (action.type) {
         case 'START_LOADING': return { ...state, status: 'loading', error: null };
         case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
@@ -85,9 +85,14 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'LOAD_CHAT_SUCCESS': return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
         case 'CHAT_RESPONSE_SUCCESS':
             return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId, chatHistory: action.payload.chatHistory || state.chatHistory };
-        case 'START_TEAM_BUILDER':
+        
+        // MODIFIED: Split the team builder start process
+        case 'START_TEAM_BUILDER_UI':
             const placeholderTeam: Team = { teamId: 'wip-team', name: 'Designing New Team...' };
-            return { ...state, teams: [placeholderTeam, ...state.teams], activeTeam: placeholderTeam, view: 'team_builder', builderMessages: [], status: 'idle' };
+            return { ...state, teams: [placeholderTeam, ...state.teams], activeTeam: placeholderTeam, view: 'team_builder', builderMessages: [], status: 'loading' };
+        case 'START_TEAM_BUILDER_SUCCESS':
+            return { ...state, builderMessages: action.payload.messages, status: 'idle' };
+
         case 'SEND_BUILDER_MESSAGE': return { ...state, status: 'loading', builderMessages: [...state.builderMessages, action.payload] };
         case 'RECEIVE_BUILDER_MESSAGE': return { ...state, status: 'idle', builderMessages: [...state.builderMessages, action.payload] };
         case 'FINISH_TEAM_BUILDER':
@@ -95,6 +100,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'CANCEL_TEAM_BUILDER':
             const aTeam = state.teams.filter(t => t.teamId !== 'wip-team')[0] || null;
             return { ...state, status: 'idle', teams: action.payload.teams, activeTeam: aTeam, view: aTeam ? 'team_management' : 'welcome' };
+        
         case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload, dialog: 'none' };
         case 'UPDATE_CHAT_HISTORY': return { ...state, chatHistory: action.payload, dialog: 'none' };
         case 'UPDATE_AGENTS': return { ...state, agents: action.payload, status: 'idle' };
@@ -109,6 +115,7 @@ export default function HomePage() {
     const [currentInput, setCurrentInput] = useState("");
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
+    const [designSessionId, setDesignSessionId] = useState<string | null>(null); // MODIFIED: New state for session ID
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
     // safeFetch and data fetching hooks are unchanged
@@ -150,6 +157,7 @@ export default function HomePage() {
         if (state.view === 'team_builder') {
             const finalTeams = state.teams.filter(t => t.teamId !== 'wip-team');
             dispatch({ type: 'CANCEL_TEAM_BUILDER', payload: { teams: finalTeams } });
+            setDesignSessionId(null); // Clear session on cancel
         }
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
         if (team && team.teamId !== state.activeTeam?.teamId) {
@@ -160,6 +168,7 @@ export default function HomePage() {
         if (state.view === 'team_builder') {
             const finalTeams = state.teams.filter(t => t.teamId !== 'wip-team');
             dispatch({ type: 'CANCEL_TEAM_BUILDER', payload: { teams: finalTeams } });
+            setDesignSessionId(null); // Clear session on cancel
             if(mode === 'chat') dispatch({ type: 'SWITCH_MODE', payload: mode });
             return;
         }
@@ -188,17 +197,25 @@ export default function HomePage() {
     };
     
     // MODIFIED: Team Builder Logic
-    const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
+    const handleStartTeamBuilder = async () => {
+        dispatch({ type: 'START_TEAM_BUILDER_UI' });
+        const sessionData = await safeFetch(`${backendApiUrl}/team-builder/session`, { method: 'POST' });
+        if (sessionData) {
+            setDesignSessionId(sessionData.designSessionId);
+            dispatch({ type: 'START_TEAM_BUILDER_SUCCESS', payload: { messages: sessionData.messages } });
+        }
+    };
 
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
         e.preventDefault();
         const userInput = { role: 'user', content: currentInput.trim() };
-        if (!userInput.content) return;
+        if (!userInput.content || !designSessionId) return;
         
         dispatch({ type: 'SEND_BUILDER_MESSAGE', payload: userInput });
         setCurrentInput("");
 
-        const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: JSON.stringify({ messages: [...state.builderMessages, userInput] }) });
+        const body = JSON.stringify({ messages: [...state.builderMessages, userInput], designSessionId });
+        const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
         
         if (response) {
             dispatch({ type: 'RECEIVE_BUILDER_MESSAGE', payload: response });
@@ -206,12 +223,13 @@ export default function HomePage() {
             if (match && match[1]) {
                 try {
                     const teamData = JSON.parse(match[1]);
-                    // MODIFIED: Check for team_name and agents, then create directly
                     if (teamData.team_name && teamData.agents && Array.isArray(teamData.agents)) {
-                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: JSON.stringify(teamData) });
+                        const createBody = JSON.stringify({ ...teamData, designSessionId });
+                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
                         if(newTeamResponse && newTeamResponse.success) {
                             const finalTeams = [newTeamResponse, ...state.teams.filter(t => t.teamId !== 'wip-team')];
                             dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams } });
+                            setDesignSessionId(null); // Clear session on success
                         }
                     } else {
                          throw new Error("AI response did not contain a valid 'team_name' and 'agents' array.");
@@ -309,7 +327,7 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            {/* MODIFIED: Removed the 'name_ai_team' Dialog */}
+            {/* Removed the 'name_ai_team' Dialog */}
             <Dialog open={state.dialog === 'create_team'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Create New Team</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="e.g., Marketing Engine" /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleCreateTeam}>Create</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
