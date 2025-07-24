@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v40.1 - Definitive Fix for All Remaining Type Errors (Complete & Verified)
+// v47.0 - Final, Stable Version Post-Backend Fix
 
 "use client";
 
@@ -53,7 +53,7 @@ type AppAction =
     | { type: 'START_LOADING'; }
     | { type: 'SET_ERROR'; payload: string }
     | { type: 'INITIAL_LOAD_SUCCESS'; payload: { teams: Team[], designSessions: DesignSession[] } }
-    | { type: 'SET_ACTIVE_TEAM_FOR_CHAT'; payload: Team | null }
+    | { type: 'SET_ACTIVE_TEAM_FOR_CHAT'; payload: Team }
     | { type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT'; payload: Team }
     | { type: 'FETCH_TEAM_DATA_SUCCESS'; payload: { chatHistory: ChatHistoryItem[]; agents: Agent[] } }
     | { type: 'SWITCH_MODE'; payload: 'chat' | 'team' }
@@ -61,7 +61,10 @@ type AppAction =
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
     | { type: 'CHAT_RESPONSE_SUCCESS'; payload: { messages: any[]; chatId?: string | null; chatHistory?: ChatHistoryItem[] } }
     | { type: 'START_TEAM_BUILDER'; }
-    | { type: 'UPDATE_ACTIVE_DESIGN_SESSION'; payload: DesignSession }
+    | { type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION'; payload: { userMessage: any } }
+    | { type: 'UPDATE_DESIGN_SESSION_SUCCESS'; payload: DesignSession }
+    | { type: 'ADD_CREATION_MESSAGE'; payload: { designSessionId: string | null } }
+    | { type: 'LOAD_DESIGN_SESSION'; payload: DesignSession }
     | { type: 'FINISH_TEAM_BUILDER'; payload: { newTeam: Team; teams: Team[]; designSessions: DesignSession[] } }
     | { type: 'OPEN_DIALOG'; payload: { dialog: AppState['dialog']; chat?: ChatHistoryItem, agent?: Agent, designSession?: DesignSession } }
     | { type: 'CLOSE_DIALOG'; }
@@ -70,46 +73,67 @@ type AppAction =
     | { type: 'UPDATE_AGENTS'; payload: Agent[] }
     | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] };
 
-    function appReducer(state: AppState, action: AppAction): AppState {
-        switch (action.type) {
-            case 'START_LOADING': return { ...state, status: 'loading', error: null };
-            case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
-            case 'INITIAL_LOAD_SUCCESS':
-                return { ...state, teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.teams[0] || null, status: 'idle', view: 'chat' };
-            case 'SET_ACTIVE_TEAM_FOR_CHAT':
-                return { ...state, activeTeam: action.payload, activeDesignSession: null, currentChatId: null, messages: [], chatHistory: [], agents: [], status: 'loading', view: 'chat' };
-            case 'SET_ACTIVE_TEAM_FOR_MANAGEMENT':
-                return { ...state, activeTeam: action.payload, activeDesignSession: null, agents: [], status: 'loading', view: 'team_management' };
-            case 'FETCH_TEAM_DATA_SUCCESS':
-                return { ...state, status: 'idle', chatHistory: action.payload.chatHistory, agents: action.payload.agents };
-            case 'SWITCH_MODE':
-                if (action.payload === 'team') {
-                    return { ...state, view: 'team_management', activeTeam: null, activeDesignSession: null };
-                }
-                return { ...state, view: 'chat', activeTeam: state.teams[0] || null, activeDesignSession: null };
-            case 'START_NEW_CHAT': return { ...state, currentChatId: null, messages: [], view: 'chat' };
-            case 'LOAD_CHAT_SUCCESS': return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
-            case 'CHAT_RESPONSE_SUCCESS':
-                return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId, chatHistory: action.payload.chatHistory || state.chatHistory };
-            case 'START_TEAM_BUILDER':
-                return { ...state, view: 'team_builder', activeDesignSession: null, activeTeam: null, status: 'idle' };
-            
-            // MODIFIED: This is the fix. It now correctly changes the view.
-            case 'UPDATE_ACTIVE_DESIGN_SESSION':
-                const newSessions = state.designSessions.filter(s => s.designSessionId !== action.payload.designSessionId);
-                return { ...state, status: 'idle', activeDesignSession: action.payload, designSessions: [action.payload, ...newSessions], view: 'team_builder', activeTeam: null };
-    
-            case 'FINISH_TEAM_BUILDER':
-                return { ...state, status: 'idle', teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.newTeam, activeDesignSession: null, view: 'team_management' };
-            case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload };
-            case 'UPDATE_CHAT_HISTORY': return { ...state, chatHistory: action.payload };
-            case 'UPDATE_AGENTS': return { ...state, agents: action.payload };
-            case 'UPDATE_DESIGN_SESSIONS': return { ...state, designSessions: action.payload };
-            case 'OPEN_DIALOG': return { ...state, dialog: action.payload.dialog, chatToEdit: action.payload.chat || null, agentToDelete: action.payload.agent || null, designSessionToDelete: action.payload.designSession || null };
-            case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null };
-            default: return state;
-        }
+function appReducer(state: AppState, action: AppAction): AppState {
+    switch (action.type) {
+        case 'START_LOADING': return { ...state, status: 'loading', error: null };
+        case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
+        case 'INITIAL_LOAD_SUCCESS':
+            return { ...state, teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: state.view !== 'team_management' ? action.payload.teams[0] || null : null, status: 'idle' };
+        case 'SET_ACTIVE_TEAM_FOR_CHAT':
+            return { ...state, view: 'chat', activeTeam: action.payload, activeDesignSession: null, currentChatId: null, messages: [], chatHistory: [], agents: [], status: 'loading' };
+        case 'SET_ACTIVE_TEAM_FOR_MANAGEMENT':
+            return { ...state, view: 'team_management', activeTeam: action.payload, activeDesignSession: null, agents: [], status: 'loading' };
+        case 'FETCH_TEAM_DATA_SUCCESS':
+            return { ...state, status: 'idle', chatHistory: action.payload.chatHistory, agents: action.payload.agents };
+        case 'SWITCH_MODE':
+            if (action.payload === 'team') {
+                return { ...state, view: 'team_management', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
+            }
+            return { ...state, view: 'chat', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
+        case 'START_NEW_CHAT': return { ...state, currentChatId: null, messages: [], view: 'chat' };
+        case 'LOAD_CHAT_SUCCESS': return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
+        case 'CHAT_RESPONSE_SUCCESS':
+            return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId, chatHistory: action.payload.chatHistory || state.chatHistory };
+        case 'START_TEAM_BUILDER':
+            return { ...state, view: 'team_builder', activeDesignSession: null, activeTeam: null, status: 'idle' };
+        
+        case 'OPTIMISTIC_UPDATE_DESIGN_SESSION':
+            const currentMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
+            const newActiveSession = {
+                ...(state.activeDesignSession || { designSessionId: '', name: 'New Team Design', messages: [], status: 'in-progress' }),
+                messages: [...currentMessages, action.payload.userMessage]
+            };
+            return { ...state, status: 'loading', activeDesignSession: newActiveSession as DesignSession };
+
+        case 'UPDATE_DESIGN_SESSION_SUCCESS':
+            const updatedSession = action.payload;
+            const newSessions = state.designSessions.map(s => s.designSessionId === updatedSession.designSessionId ? updatedSession : s);
+            const sessionExists = state.designSessions.some(s => s.designSessionId === updatedSession.designSessionId);
+            if (!sessionExists) {
+                newSessions.unshift(updatedSession);
+            }
+            return { ...state, status: 'idle', activeDesignSession: updatedSession, designSessions: newSessions, view: 'team_builder', activeTeam: null };
+
+        case 'ADD_CREATION_MESSAGE':
+            if (!state.activeDesignSession) return state;
+            const creationMessage = { role: 'assistant', content: 'Great! I have everything I need. Creating your new team...' };
+            const sessionWithCreationMessage = { ...state.activeDesignSession, messages: [...state.activeDesignSession.messages, creationMessage] };
+            return { ...state, status: 'loading', activeDesignSession: sessionWithCreationMessage };
+
+        case 'LOAD_DESIGN_SESSION':
+            return { ...state, view: 'team_builder', activeDesignSession: action.payload, activeTeam: null, status: 'idle' };
+
+        case 'FINISH_TEAM_BUILDER':
+            return { ...state, status: 'idle', teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.newTeam, activeDesignSession: null, view: 'team_management' };
+        case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload };
+        case 'UPDATE_CHAT_HISTORY': return { ...state, chatHistory: action.payload };
+        case 'UPDATE_AGENTS': return { ...state, agents: action.payload };
+        case 'UPDATE_DESIGN_SESSIONS': return { ...state, designSessions: action.payload };
+        case 'OPEN_DIALOG': return { ...state, dialog: action.payload.dialog, chatToEdit: action.payload.chat || null, agentToDelete: action.payload.agent || null, designSessionToDelete: action.payload.designSession || null };
+        case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null };
+        default: return state;
     }
+}
 
 const TeamWelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -165,16 +189,22 @@ export default function HomePage() {
     }, [safeFetch]);
 
     useEffect(() => { loadInitialData(); }, [loadInitialData]);
-    useEffect(() => { if (state.activeTeam) fetchDependenciesForTeam(state.activeTeam.teamId); }, [state.activeTeam]);
+    
+    useEffect(() => { 
+        if (state.activeTeam && (state.view === 'chat' || state.view === 'team_management')) {
+            fetchDependenciesForTeam(state.activeTeam.teamId);
+        }
+    }, [state.activeTeam, state.view, fetchDependenciesForTeam]);
 
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
-        if (!team) return;
-        const activeMode = (state.view === 'team_management' || state.view === 'team_builder') ? 'team' : 'chat';
-        if (activeMode === 'team') {
-            if (state.activeTeam?.teamId !== team.teamId) dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: team });
+        if (!team || team.teamId === state.activeTeam?.teamId) {
+            return;
+        }
+        if (state.view === 'team_management') {
+            dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: team });
         } else {
-            if (state.activeTeam?.teamId !== team.teamId) dispatch({ type: 'SET_ACTIVE_TEAM_FOR_CHAT', payload: team });
+            dispatch({ type: 'SET_ACTIVE_TEAM_FOR_CHAT', payload: team });
         }
     };
     
@@ -207,52 +237,80 @@ export default function HomePage() {
         }
     };
     
-    const handleStartTeamBuilder = () => {
-        dispatch({ type: 'START_TEAM_BUILDER' });
-    };
+    const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
 
-    const handleLoadDesignSession = (session: DesignSession) => {
-        dispatch({ type: 'UPDATE_ACTIVE_DESIGN_SESSION', payload: session });
-    };
+    const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
     
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
         e.preventDefault();
-        const userInput = { role: 'user', content: currentInput.trim() };
-        if (!userInput.content) return;
+        const userInputContent = currentInput.trim();
+        if (!userInputContent) return;
         
-        const currentMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
+        const userMessage = { role: 'user', content: userInputContent };
+        
+        dispatch({ type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION', payload: { userMessage } });
+        setCurrentInput("");
+        
+        const messagesForApi = [...(state.activeDesignSession?.messages || []), userMessage];
+        const designSessionId = state.activeDesignSession?.designSessionId;
+
         const body = JSON.stringify({ 
-            messages: [...currentMessages, userInput], 
-            designSessionId: state.activeDesignSession?.designSessionId
+            messages: messagesForApi, 
+            designSessionId: designSessionId
         });
 
-        setCurrentInput("");
-        dispatch({type: 'START_LOADING'});
+        // The AI's response is fetched here
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
         
         if (updatedSession) {
-            dispatch({ type: 'UPDATE_ACTIVE_DESIGN_SESSION', payload: updatedSession });
-            
             const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
-            const content = lastMessage.content.trim();
-            const match = content.match(/```json\s*([\s\S]*?)\s*```/);
+            const content = lastMessage?.content?.trim() || '';
+            const match = content.match(/^```json\s*([\s\S]*?)\s*```$/); // Stricter regex
 
+            // FIX: This block is now much more robust. It only attempts to create a team
+            // if the AI's message consists *only* of the final, valid JSON object.
             if (match && match[1]) {
                 try {
-                    const teamData = JSON.parse(match[1]);
-                    if (teamData.team_name && teamData.agents && Array.isArray(teamData.agents)) {
-                        const createBody = JSON.stringify({ ...teamData, designSessionId: updatedSession.designSessionId });
-                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
-                        if(newTeamResponse && newTeamResponse.success) {
-                            const finalTeams = [newTeamResponse, ...state.teams];
-                            const finalDesignSessions = state.designSessions.filter(s => s.designSessionId !== updatedSession.designSessionId);
-                            dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: finalTeams, designSessions: finalDesignSessions } });
+                    const parsedJson = JSON.parse(match[1]);
+                    const agentsAreValid = Array.isArray(parsedJson.agents) && parsedJson.agents.every(
+                        (agent: any) => typeof agent === 'object' && agent !== null && typeof agent.name === 'string' && typeof agent.system_prompt === 'string'
+                    );
+
+                    if (parsedJson.team_name && agentsAreValid) {
+                        // This is the final, actionable JSON. Create the team.
+                        dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
+                        
+                        const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
+                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body });
+                        
+                        if (newTeamResponse && newTeamResponse.success) {
+                            const [latestTeams, latestDesignSessions] = await Promise.all([
+                                safeFetch(`${backendApiUrl}/teams`),
+                                safeFetch(`${backendApiUrl}/team-builder/sessions`)
+                            ]);
+                            
+                            if (latestTeams !== null && latestDesignSessions !== null) {
+                                dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: latestTeams, designSessions: latestDesignSessions } });
+                            }
+                        } else {
+                            // If creation fails, show the error but also show the AI's final message so the user isn't stuck.
+                            dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+                            dispatch({ type: 'SET_ERROR', payload: `Failed to create team: ${newTeamResponse?.error || 'Unknown error'}`});
                         }
+                    } else {
+                         // The JSON was present but malformed. Treat as a conversational turn.
+                         dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                     }
                 } catch (e) {
-                    console.log("AI provided a non-fatal invalid JSON, continuing conversation.");
+                    // The JSON was invalid. Treat as a conversational turn.
+                    dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                 }
+            } else {
+                // No final JSON detected. This is a normal conversational turn.
+                dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
             }
+        } else {
+             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the team builder.' });
         }
     };
     
@@ -307,7 +365,7 @@ export default function HomePage() {
         }
     };
     
-    const handleDeleteAgent = async (agent: Agent) => {
+    const handleDeleteAgent = (agent: Agent) => {
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
     };
     
@@ -332,7 +390,7 @@ export default function HomePage() {
         const { designSessionId } = state.designSessionToDelete;
         const data = await safeFetch(`${backendApiUrl}/team-builder/sessions/${designSessionId}`, { method: 'DELETE' });
         if (data && data.success) {
-            const updatedSessions = state.designSessions.filter(s => s.designSessionId !== designSessionId);
+            const updatedSessions = state.designSessions.filter((s: DesignSession) => s.designSessionId !== designSessionId);
             dispatch({ type: 'UPDATE_DESIGN_SESSIONS', payload: updatedSessions });
             if (state.activeDesignSession?.designSessionId === designSessionId) {
                 dispatch({ type: 'SWITCH_MODE', payload: 'team' });
@@ -341,12 +399,12 @@ export default function HomePage() {
         }
     };
     
-        const renderMainContent = () => {
+    const renderMainContent = () => {
         if (state.status === 'error') {
             return <div className="p-8 text-red-500">Error: {state.error}</div>;
         }
 
-        if (state.status === 'loading' && state.view !== 'team_builder') {
+        if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession) {
             return <div className="p-8">Loading...</div>;
         }
 
@@ -355,10 +413,10 @@ export default function HomePage() {
                 return <WelcomeScreen />;
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen />;
-                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} />;
+                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading' && state.messages.length === 0} handleSubmit={handleSubmitChat} />;
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
-                return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading'} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} />;
+                return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading' && state.agents.length === 0} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} />;
             case 'team_builder':
                 const builderMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
                 return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} />;
