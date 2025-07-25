@@ -281,7 +281,7 @@ export default function HomePage() {
                         dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
                         
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
-                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body });
+                        const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
                         
                         if (newTeamResponse && newTeamResponse.success) {
                             const [latestTeams, latestDesignSessions] = await Promise.all([
