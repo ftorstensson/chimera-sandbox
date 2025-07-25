@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v47.0 - Final, Stable Version Post-Backend Fix
+// v48.2 - Definitive Fix for All Regressions and New Features
 
 "use client";
 
@@ -69,6 +69,7 @@ type AppAction =
     | { type: 'OPEN_DIALOG'; payload: { dialog: AppState['dialog']; chat?: ChatHistoryItem, agent?: Agent, designSession?: DesignSession } }
     | { type: 'CLOSE_DIALOG'; }
     | { type: 'UPDATE_TEAMS_LIST'; payload: Team[] }
+    | { type: 'UPDATE_ACTIVE_TEAM'; payload: Team }
     | { type: 'UPDATE_CHAT_HISTORY'; payload: ChatHistoryItem[] }
     | { type: 'UPDATE_AGENTS'; payload: Agent[] }
     | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] };
@@ -126,6 +127,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'FINISH_TEAM_BUILDER':
             return { ...state, status: 'idle', teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.newTeam, activeDesignSession: null, view: 'team_management' };
         case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload };
+        case 'UPDATE_ACTIVE_TEAM':
+             const newTeams = state.teams.map(t => t.teamId === action.payload.teamId ? action.payload : t);
+            return { ...state, status: 'idle', activeTeam: action.payload, teams: newTeams };
         case 'UPDATE_CHAT_HISTORY': return { ...state, chatHistory: action.payload };
         case 'UPDATE_AGENTS': return { ...state, agents: action.payload };
         case 'UPDATE_DESIGN_SESSIONS': return { ...state, designSessions: action.payload };
@@ -224,36 +228,36 @@ export default function HomePage() {
         e.preventDefault();
         const userInput = currentInput.trim();
         if (!userInput || !state.activeTeam) return;
-
         const userMessage = { role: 'user', content: userInput };
         const newMessages = [...state.messages, userMessage];
-
-        // FIX: Optimistically update UI and show loading indicator
         dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: newMessages, chatId: state.currentChatId, chatHistory: state.chatHistory } });
-        dispatch({ type: 'START_LOADING' }); // Trigger loading state
+        dispatch({ type: 'START_LOADING' });
         setCurrentInput("");
-
-        try {
-            const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
-            const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
-
-            if (data) {
-                const needsHistoryRefresh = !state.currentChatId; // Check if it was a new chat
-                const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
-                dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
-            } else {
-                // Handle cases where safeFetch returns null (e.g., network error already dispatched)
-                dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from chat API.' });
-            }
-        } catch (error: any) {
-            // Error already dispatched by safeFetch, just ensure status is updated
-            dispatch({ type: 'SET_ERROR', payload: error.message || 'An error occurred during chat.' });
+        const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
+        const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
+        if (data) {
+            const needsHistoryRefresh = !state.currentChatId;
+            const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
+            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
         }
     };
     
     const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
 
     const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
+    
+    const handleUpdateMission = async (mission: string) => {
+        if (!state.activeTeam || mission === state.activeTeam.mission) return;
+        
+        dispatch({ type: 'START_LOADING' });
+        const body = JSON.stringify({ mission: mission });
+        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
+        
+        if (response && response.success) {
+            const updatedTeam = { ...state.activeTeam, mission: mission };
+            dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
+        }
+    };
     
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -268,30 +272,22 @@ export default function HomePage() {
         const messagesForApi = [...(state.activeDesignSession?.messages || []), userMessage];
         const designSessionId = state.activeDesignSession?.designSessionId;
 
-        const body = JSON.stringify({ 
-            messages: messagesForApi, 
-            designSessionId: designSessionId
-        });
-
-        // The AI's response is fetched here
+        const body = JSON.stringify({ messages: messagesForApi, designSessionId });
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
         
         if (updatedSession) {
             const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
             const content = lastMessage?.content?.trim() || '';
-            const match = content.match(/^```json\s*([\s\S]*?)\s*```$/); // Stricter regex
+            const match = content.match(/^```json\s*([\s\S]*?)\s*```$/);
 
-            // FIX: This block is now much more robust. It only attempts to create a team
-            // if the AI's message consists *only* of the final, valid JSON object.
             if (match && match[1]) {
                 try {
                     const parsedJson = JSON.parse(match[1]);
                     const agentsAreValid = Array.isArray(parsedJson.agents) && parsedJson.agents.every(
-                        (agent: any) => typeof agent === 'object' && agent !== null && typeof agent.name === 'string' && typeof agent.system_prompt === 'string'
+                        (agent: any) => typeof agent === 'object' && agent.name && agent.system_prompt
                     );
 
                     if (parsedJson.team_name && agentsAreValid) {
-                        // This is the final, actionable JSON. Create the team.
                         dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
                         
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
@@ -307,24 +303,18 @@ export default function HomePage() {
                                 dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: latestTeams, designSessions: latestDesignSessions } });
                             }
                         } else {
-                            // If creation fails, show the error but also show the AI's final message so the user isn't stuck.
                             dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                             dispatch({ type: 'SET_ERROR', payload: `Failed to create team: ${newTeamResponse?.error || 'Unknown error'}`});
                         }
                     } else {
-                         // The JSON was present but malformed. Treat as a conversational turn.
                          dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                     }
                 } catch (e) {
-                    // The JSON was invalid. Treat as a conversational turn.
                     dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                 }
             } else {
-                // No final JSON detected. This is a normal conversational turn.
                 dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
             }
-        } else {
-             dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from the team builder.' });
         }
     };
     
@@ -430,7 +420,7 @@ export default function HomePage() {
                 return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} />;
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
-                return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading' && state.agents.length === 0} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} />;
+                return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading'} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} onUpdateMission={handleUpdateMission} />;
             case 'team_builder':
                 const builderMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
                 return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} />;
@@ -459,7 +449,9 @@ export default function HomePage() {
                 onLoadDesignSession={handleLoadDesignSession}
                 onDeleteDesignSession={handleDeleteDesignSession}
                 onRenameChat={(chat) => handleDialogOpen('rename_chat', { chat })}
-                onDeleteChat={(chat) => handleDialogOpen('delete_chat', { chat })}>
+                onDeleteChat={(chat) => handleDialogOpen('delete_chat', { chat })}
+                onUpdateMission={handleUpdateMission}
+                >
                 {renderMainContent()}
             </AppLayout>
 
