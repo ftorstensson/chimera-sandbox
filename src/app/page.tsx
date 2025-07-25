@@ -224,16 +224,30 @@ export default function HomePage() {
         e.preventDefault();
         const userInput = currentInput.trim();
         if (!userInput || !state.activeTeam) return;
+
         const userMessage = { role: 'user', content: userInput };
         const newMessages = [...state.messages, userMessage];
+
+        // FIX: Optimistically update UI and show loading indicator
         dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: newMessages, chatId: state.currentChatId, chatHistory: state.chatHistory } });
+        dispatch({ type: 'START_LOADING' }); // Trigger loading state
         setCurrentInput("");
-        const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
-        const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
-        if (data) {
-            const needsHistoryRefresh = !state.currentChatId;
-            const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
-            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
+
+        try {
+            const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
+            const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
+
+            if (data) {
+                const needsHistoryRefresh = !state.currentChatId; // Check if it was a new chat
+                const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
+                dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
+            } else {
+                // Handle cases where safeFetch returns null (e.g., network error already dispatched)
+                dispatch({ type: 'SET_ERROR', payload: 'Failed to get a response from chat API.' });
+            }
+        } catch (error: any) {
+            // Error already dispatched by safeFetch, just ensure status is updated
+            dispatch({ type: 'SET_ERROR', payload: error.message || 'An error occurred during chat.' });
         }
     };
     
@@ -413,7 +427,7 @@ export default function HomePage() {
                 return <WelcomeScreen />;
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen />;
-                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading' && state.messages.length === 0} handleSubmit={handleSubmitChat} />;
+                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} />;
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
                 return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading' && state.agents.length === 0} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} />;
