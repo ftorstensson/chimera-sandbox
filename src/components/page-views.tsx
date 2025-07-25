@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v3.0 - Fixed typo in Textarea onChange handler
+// v4.0 - Adds Mission Statement UI to Team Management View
 
 "use client";
 
@@ -28,7 +28,7 @@ export const WelcomeScreen = () => (
 );
 
 // ==============================================================================
-//  2. Chat View (MODIFIED)
+//  2. Chat View (No changes)
 // ==============================================================================
 interface ChatViewProps {
     messages: any[];
@@ -66,7 +66,6 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                 <div className="w-full max-w-3xl mx-auto">
                     <form onSubmit={handleSubmit}>
                         <div className="flex items-end space-x-2">
-                        {/* --- THIS IS THE MODIFIED LINE --- */}
                         <Textarea value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} placeholder="Describe your app idea..." className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-zinc-800" rows={1}/>
                         <Button type="submit" className="rounded-lg h-10 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isLoading}>Send</Button>
                         </div>
@@ -78,7 +77,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
 };
 
 // ==============================================================================
-//  3. Team Management View (No changes)
+//  3. Team Management View (MODIFIED)
 // ==============================================================================
 interface TeamManagementViewProps { 
     team: Team; 
@@ -86,19 +85,45 @@ interface TeamManagementViewProps {
     isLoading: boolean;
     onCreateAgent: () => void;
     onEditAgent: (agent: Agent) => void;
+    onUpdateMission: (mission: string) => void; // New Prop
 }
-export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent }: TeamManagementViewProps) => ( 
+export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent, onUpdateMission }: TeamManagementViewProps) => {
+    const [missionText, setMissionText] = React.useState(team.mission);
+
+    React.useEffect(() => {
+        setMissionText(team.mission);
+    }, [team.mission]);
+    
+    return ( 
     <div className="p-8 max-w-4xl mx-auto"> 
-        <header className="flex items-center justify-between pb-4 border-b border-gray-200 dark:border-zinc-800"> 
-            <div> 
+        <header className="pb-4 border-b border-gray-200 dark:border-zinc-800"> 
+            <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold">{team.name}</h1> 
-                <p className="mt-1 text-lg text-gray-500 dark:text-gray-400"> Manage the agents in this team. </p> 
-            </div> 
-            <Button onClick={onCreateAgent}> 
-                <Plus className="mr-2 h-4 w-4" /> New Agent 
-            </Button> 
+                <Button onClick={onCreateAgent}> 
+                    <Plus className="mr-2 h-4 w-4" /> New Agent 
+                </Button> 
+            </div>
+            {/* --- NEW MISSION STATEMENT UI --- */}
+            <div className="mt-4">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Team Mission (Source of Truth)</p>
+                <Textarea
+                    value={missionText}
+                    onChange={(e) => setMissionText(e.target.value)}
+                    placeholder="Define the core purpose of this team..."
+                    className="w-full"
+                />
+                <Button 
+                    size="sm" 
+                    className="mt-2" 
+                    onClick={() => onUpdateMission(missionText)}
+                    disabled={missionText === team.mission}
+                >
+                    Save Mission
+                </Button>
+            </div>
         </header> 
         <div className="mt-6"> 
+            <h2 className="text-xl font-semibold mb-4">Team Agents</h2>
             {isLoading ? <p>Loading agents...</p> : ( 
                 <div className="space-y-4"> 
                     {agents.map(agent => ( 
@@ -116,4 +141,4 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
             )} 
         </div> 
     </div> 
-);
+)};
