@@ -1,12 +1,12 @@
 // src/app/page.tsx
-// v48.2 - Definitive Fix for All Regressions and New Features
+// v50.0 - Implements Graceful, Contextual AI Redirect with Confirmation
 
 "use client";
 
 import { useState, useEffect, useCallback, useReducer } from "react";
 import { AppLayout, Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
@@ -23,10 +23,11 @@ interface AppState {
     activeDesignSession: DesignSession | null;
     currentChatId: string | null;
     messages: any[];
-    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session';
+    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session' | 'ai_redirect_confirmation'; // New dialog state
     chatToEdit: ChatHistoryItem | null;
     agentToDelete: Agent | null;
     designSessionToDelete: DesignSession | null;
+    redirectInfo: { message: string; originalUserInput: string } | null; // Store redirect context
     status: 'idle' | 'loading' | 'error';
     error: string | null;
 }
@@ -45,6 +46,7 @@ const initialState: AppState = {
     chatToEdit: null,
     agentToDelete: null,
     designSessionToDelete: null,
+    redirectInfo: null,
     status: 'idle',
     error: null,
 };
@@ -72,7 +74,8 @@ type AppAction =
     | { type: 'UPDATE_ACTIVE_TEAM'; payload: Team }
     | { type: 'UPDATE_CHAT_HISTORY'; payload: ChatHistoryItem[] }
     | { type: 'UPDATE_AGENTS'; payload: Agent[] }
-    | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] };
+    | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] }
+    | { type: 'TRIGGER_AI_REDIRECT_CONFIRMATION'; payload: { message: string; originalUserInput: string } };
 
 function appReducer(state: AppState, action: AppAction): AppState {
     switch (action.type) {
@@ -101,7 +104,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'OPTIMISTIC_UPDATE_DESIGN_SESSION':
             const currentMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
             const newActiveSession = {
-                ...(state.activeDesignSession || { designSessionId: '', name: 'New Team Design', messages: [], status: 'in-progress' }),
+                ...(state.activeDesignSession || { designSessionId: '', name: 'New Team Design', messages: [] }),
                 messages: [...currentMessages, action.payload.userMessage]
             };
             return { ...state, status: 'loading', activeDesignSession: newActiveSession as DesignSession };
@@ -126,6 +129,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
         case 'FINISH_TEAM_BUILDER':
             return { ...state, status: 'idle', teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.newTeam, activeDesignSession: null, view: 'team_management' };
+        
+        case 'TRIGGER_AI_REDIRECT_CONFIRMATION':
+            return { ...state, status: 'idle', dialog: 'ai_redirect_confirmation', redirectInfo: action.payload };
+
         case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload };
         case 'UPDATE_ACTIVE_TEAM':
              const newTeams = state.teams.map(t => t.teamId === action.payload.teamId ? action.payload : t);
@@ -134,7 +141,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'UPDATE_AGENTS': return { ...state, agents: action.payload };
         case 'UPDATE_DESIGN_SESSIONS': return { ...state, designSessions: action.payload };
         case 'OPEN_DIALOG': return { ...state, dialog: action.payload.dialog, chatToEdit: action.payload.chat || null, agentToDelete: action.payload.agent || null, designSessionToDelete: action.payload.designSession || null };
-        case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null };
+        case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null, redirectInfo: null };
         default: return state;
     }
 }
@@ -235,10 +242,41 @@ export default function HomePage() {
         setCurrentInput("");
         const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
+
         if (data) {
+            const lastMessage = data.messages[data.messages.length - 1];
+            try {
+                const parsedContent = JSON.parse(lastMessage.content);
+                if (parsedContent.action === 'redirect_to_team_builder') {
+                    dispatch({ 
+                        type: 'TRIGGER_AI_REDIRECT_CONFIRMATION', 
+                        payload: { message: parsedContent.message, originalUserInput: userInput }
+                    });
+                    return; 
+                }
+            } catch (error) {
+                // Not a JSON signal
+            }
             const needsHistoryRefresh = !state.currentChatId;
             const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
             dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
+        }
+    };
+
+    const handleConfirmRedirect = async () => {
+        if (!state.redirectInfo) return;
+        const { message, originalUserInput } = state.redirectInfo;
+
+        dispatch({ type: 'CLOSE_DIALOG' });
+        dispatch({ type: 'START_LOADING' });
+
+        const userMessage = { role: 'user', content: originalUserInput };
+        const redirectBody = JSON.stringify({
+            messages: [{ role: 'assistant', content: message }, userMessage]
+        });
+        const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
+        if (updatedSession) {
+            dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
         }
     };
     
@@ -248,11 +286,9 @@ export default function HomePage() {
     
     const handleUpdateMission = async (mission: string) => {
         if (!state.activeTeam || mission === state.activeTeam.mission) return;
-        
         dispatch({ type: 'START_LOADING' });
         const body = JSON.stringify({ mission: mission });
         const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
-        
         if (response && response.success) {
             const updatedTeam = { ...state.activeTeam, mission: mission };
             dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
@@ -263,42 +299,29 @@ export default function HomePage() {
         e.preventDefault();
         const userInputContent = currentInput.trim();
         if (!userInputContent) return;
-        
         const userMessage = { role: 'user', content: userInputContent };
-        
         dispatch({ type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION', payload: { userMessage } });
         setCurrentInput("");
-        
         const messagesForApi = [...(state.activeDesignSession?.messages || []), userMessage];
         const designSessionId = state.activeDesignSession?.designSessionId;
-
         const body = JSON.stringify({ messages: messagesForApi, designSessionId });
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
-        
         if (updatedSession) {
             const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
             const content = lastMessage?.content?.trim() || '';
             const match = content.match(/^```json\s*([\s\S]*?)\s*```$/);
-
             if (match && match[1]) {
                 try {
                     const parsedJson = JSON.parse(match[1]);
-                    const agentsAreValid = Array.isArray(parsedJson.agents) && parsedJson.agents.every(
-                        (agent: any) => typeof agent === 'object' && agent.name && agent.system_prompt
-                    );
-
-                    if (parsedJson.team_name && agentsAreValid) {
+                    if (parsedJson.team_name && Array.isArray(parsedJson.agents)) {
                         dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
-                        
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
                         const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
-                        
                         if (newTeamResponse && newTeamResponse.success) {
                             const [latestTeams, latestDesignSessions] = await Promise.all([
                                 safeFetch(`${backendApiUrl}/teams`),
                                 safeFetch(`${backendApiUrl}/team-builder/sessions`)
                             ]);
-                            
                             if (latestTeams !== null && latestDesignSessions !== null) {
                                 dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: latestTeams, designSessions: latestDesignSessions } });
                             }
@@ -465,6 +488,16 @@ export default function HomePage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
                         <Button variant="destructive" onClick={handleConfirmDeleteDesignSession}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={state.dialog === 'ai_redirect_confirmation'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Switch to Team Builder?</DialogTitle></DialogHeader>
+                    <DialogDescription>{state.redirectInfo?.message}</DialogDescription>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
+                        <Button onClick={handleConfirmRedirect}>Yes, let's build a new team</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
