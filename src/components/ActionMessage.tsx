@@ -1,5 +1,5 @@
 // src/components/ActionMessage.tsx
-// A reusable component to display an AI message with actionable buttons.
+// v2.2 - Font size and color updated to match main body text.
 
 "use client";
 
@@ -23,10 +23,13 @@ export interface ActionMessageProps {
 export const ActionMessage: React.FC<ActionMessageProps> = ({ message, onAction }) => {
   return (
     <div className="flex justify-start">
-      <div className="flex flex-col space-y-2 max-w-md">
-        <div className="bg-gray-200 dark:bg-zinc-700 p-4 rounded-2xl rounded-bl-none shadow-sm">
-          <p className="text-sm">{message.text}</p>
-        </div>
+      <div className="flex flex-col space-y-3">
+        
+        {/* MODIFICATION: Updated classes to text-base for size and text-foreground for color. */}
+        <p className="text-base text-foreground/90">
+          {message.text}
+        </p>
+        
         <div className="w-full flex justify-end space-x-2">
           {message.actions.map((action) => (
             <Button
