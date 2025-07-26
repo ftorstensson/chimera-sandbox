@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v50.0 - Implements Graceful, Contextual AI Redirect with Confirmation
+// v52.0 - Final implementation of clean, contextual handoff
 
 "use client";
 
@@ -23,11 +23,11 @@ interface AppState {
     activeDesignSession: DesignSession | null;
     currentChatId: string | null;
     messages: any[];
-    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session' | 'ai_redirect_confirmation'; // New dialog state
+    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session' | 'ai_redirect_confirmation';
     chatToEdit: ChatHistoryItem | null;
     agentToDelete: Agent | null;
     designSessionToDelete: DesignSession | null;
-    redirectInfo: { message: string; originalUserInput: string } | null; // Store redirect context
+    redirectInfo: { message: string; originalUserInput: string } | null;
     status: 'idle' | 'loading' | 'error';
     error: string | null;
 }
@@ -252,6 +252,8 @@ export default function HomePage() {
                         type: 'TRIGGER_AI_REDIRECT_CONFIRMATION', 
                         payload: { message: parsedContent.message, originalUserInput: userInput }
                     });
+                    // Revert the optimistic message update since we are redirecting
+                    dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: state.messages, chatId: state.currentChatId, chatHistory: state.chatHistory } });
                     return; 
                 }
             } catch (error) {
@@ -265,14 +267,14 @@ export default function HomePage() {
 
     const handleConfirmRedirect = async () => {
         if (!state.redirectInfo) return;
-        const { message, originalUserInput } = state.redirectInfo;
+        const { originalUserInput } = state.redirectInfo;
 
         dispatch({ type: 'CLOSE_DIALOG' });
         dispatch({ type: 'START_LOADING' });
 
-        const userMessage = { role: 'user', content: originalUserInput };
         const redirectBody = JSON.stringify({
-            messages: [{ role: 'assistant', content: message }, userMessage]
+            messages: [], // Start with a clean message history
+            initial_user_idea: originalUserInput // Pass the context "behind the scenes"
         });
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
         if (updatedSession) {
@@ -281,10 +283,10 @@ export default function HomePage() {
     };
     
     const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
-
     const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
     
     const handleUpdateMission = async (mission: string) => {
+        // ... (code unchanged)
         if (!state.activeTeam || mission === state.activeTeam.mission) return;
         dispatch({ type: 'START_LOADING' });
         const body = JSON.stringify({ mission: mission });
@@ -296,6 +298,7 @@ export default function HomePage() {
     };
     
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
+        // ... (code unchanged)
         e.preventDefault();
         const userInputContent = currentInput.trim();
         if (!userInputContent) return;
@@ -342,16 +345,19 @@ export default function HomePage() {
     };
     
     const handleDialogOpen = (dialog: AppState['dialog'], options?: { chat?: ChatHistoryItem, agent?: Agent, designSession?: DesignSession }) => {
+        // ... (code unchanged)
         if (options?.chat) setDialogInput(options.chat.title);
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, ...options } });
     };
     
     const handleDialogClose = () => {
+        // ... (code unchanged)
         dispatch({ type: 'CLOSE_DIALOG' });
         setDialogInput("");
     };
     
     const handleRenameChat = async () => {
+        // ... (code unchanged)
         if (!dialogInput || !state.chatToEdit) return;
         const { chatId } = state.chatToEdit;
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}/rename`, { method: 'POST', body: JSON.stringify({ new_title: dialogInput }) });
@@ -363,6 +369,7 @@ export default function HomePage() {
     };
     
     const handleDeleteChat = async () => {
+        // ... (code unchanged)
         if (!state.chatToEdit || !state.activeTeam) return;
         const { chatId } = state.chatToEdit;
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`, { method: 'DELETE' });
@@ -375,11 +382,13 @@ export default function HomePage() {
     };
     
     const handleEditAgentClick = (agent: Agent | null) => {
+        // ... (code unchanged)
         if (agent && !agent.agentId) setAgentToEdit({ ...agent, system_prompt: '' });
         else setAgentToEdit(agent);
     };
     
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
+        // ... (code unchanged)
         if (!state.activeTeam) return;
         const isCreating = !agentToEdit?.agentId;
         const url = isCreating ? `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents` : `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentToEdit.agentId}`;
@@ -393,10 +402,12 @@ export default function HomePage() {
     };
     
     const handleDeleteAgent = (agent: Agent) => {
+        // ... (code unchanged)
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
     };
     
     const handleConfirmDeleteAgent = async () => {
+        // ... (code unchanged)
         if (!state.activeTeam || !state.agentToDelete) return;
         const { agentId } = state.agentToDelete;
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`, { method: 'DELETE' });
@@ -409,10 +420,12 @@ export default function HomePage() {
     };
 
     const handleDeleteDesignSession = async (session: DesignSession) => {
+        // ... (code unchanged)
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_design_session', designSession: session } });
     };
 
     const handleConfirmDeleteDesignSession = async () => {
+        // ... (code unchanged)
         if (!state.designSessionToDelete) return;
         const { designSessionId } = state.designSessionToDelete;
         const data = await safeFetch(`${backendApiUrl}/team-builder/sessions/${designSessionId}`, { method: 'DELETE' });
@@ -427,6 +440,7 @@ export default function HomePage() {
     };
     
     const renderMainContent = () => {
+        // ... (code unchanged)
         if (state.status === 'error') {
             return <div className="p-8 text-red-500">Error: {state.error}</div>;
         }
@@ -478,6 +492,7 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
+            {/* Dialogs (Unchanged) */}
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_agent'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Agent</DialogTitle></DialogHeader> <p>Are you sure you want to permanently delete the agent "{state.agentToDelete?.name}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleConfirmDeleteAgent}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
