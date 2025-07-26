@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v4.0 - Adds Mission Statement UI to Team Management View
+// v5.0 - Integrates the new ActionMessage component into ChatView.
 
 "use client";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
+import { ActionMessage } from "@/components/ActionMessage"; // MODIFICATION: Import the new component
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
 import { Plus, Compass, Code, MessageSquare } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
@@ -28,7 +29,7 @@ export const WelcomeScreen = () => (
 );
 
 // ==============================================================================
-//  2. Chat View (No changes)
+//  2. Chat View (MODIFIED)
 // ==============================================================================
 interface ChatViewProps {
     messages: any[];
@@ -36,8 +37,10 @@ interface ChatViewProps {
     setCurrentInput: (value: string) => void;
     isLoading: boolean;
     handleSubmit: (e: React.FormEvent) => void;
+    // MODIFICATION: Add a new prop to handle button clicks from an ActionMessage.
+    onAction: (actionId: string) => void;
 }
-export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, handleSubmit }: ChatViewProps) => {
+export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, handleSubmit, onAction }: ChatViewProps) => {
     const bottomOfChatRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
         bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,11 +52,25 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                 <div className="w-full max-w-3xl mx-auto">
                     {messages.length === 0 && !isLoading ? <WelcomeScreen /> : messages.map((msg, index) => {
                         if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
+                        
                         if (msg.role === 'assistant' && msg.content) {
+                            // --- MODIFICATION: Logic to detect and render ActionMessage ---
+                            try {
+                                const parsedContent = JSON.parse(msg.content);
+                                // If parsing succeeds and it has the right structure, render ActionMessage.
+                                if (parsedContent.text && Array.isArray(parsedContent.actions)) {
+                                    return <ActionMessage key={index} message={parsedContent} onAction={onAction} />;
+                                }
+                            } catch (error) {
+                                // This is expected for normal text messages. Do nothing and fall through.
+                            }
+                            // --- End of Modification ---
+
+                            // Fallback for regular assistant messages
                             return (
-                            <AssistantMessage key={index}>{msg.content}
-                                {msg.agent_used && msg.structured_data && <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />}
-                            </AssistantMessage>
+                                <AssistantMessage key={index}>{msg.content}
+                                    {msg.agent_used && msg.structured_data && <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />}
+                                </AssistantMessage>
                             );
                         }
                         return null;
@@ -77,7 +94,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
 };
 
 // ==============================================================================
-//  3. Team Management View (MODIFIED)
+//  3. Team Management View (No changes from your provided file)
 // ==============================================================================
 interface TeamManagementViewProps { 
     team: Team; 
@@ -85,7 +102,7 @@ interface TeamManagementViewProps {
     isLoading: boolean;
     onCreateAgent: () => void;
     onEditAgent: (agent: Agent) => void;
-    onUpdateMission: (mission: string) => void; // New Prop
+    onUpdateMission: (mission: string) => void;
 }
 export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent, onUpdateMission }: TeamManagementViewProps) => {
     const [missionText, setMissionText] = React.useState(team.mission);
@@ -103,7 +120,6 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
                     <Plus className="mr-2 h-4 w-4" /> New Agent 
                 </Button> 
             </div>
-            {/* --- NEW MISSION STATEMENT UI --- */}
             <div className="mt-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Team Mission (Source of Truth)</p>
                 <Textarea

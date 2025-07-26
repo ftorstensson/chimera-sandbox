@@ -1,12 +1,12 @@
 // src/app/page.tsx
-// v52.0 - Final implementation of clean, contextual handoff
+// v53.0 - Final integration of the in-chat ActionMessage component
 
 "use client";
 
 import { useState, useEffect, useCallback, useReducer } from "react";
 import { AppLayout, Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
@@ -23,11 +23,10 @@ interface AppState {
     activeDesignSession: DesignSession | null;
     currentChatId: string | null;
     messages: any[];
-    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session' | 'ai_redirect_confirmation';
+    dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session'; // MODIFICATION: Removed 'ai_redirect_confirmation'
     chatToEdit: ChatHistoryItem | null;
     agentToDelete: Agent | null;
     designSessionToDelete: DesignSession | null;
-    redirectInfo: { message: string; originalUserInput: string } | null;
     status: 'idle' | 'loading' | 'error';
     error: string | null;
 }
@@ -46,7 +45,6 @@ const initialState: AppState = {
     chatToEdit: null,
     agentToDelete: null,
     designSessionToDelete: null,
-    redirectInfo: null,
     status: 'idle',
     error: null,
 };
@@ -74,8 +72,7 @@ type AppAction =
     | { type: 'UPDATE_ACTIVE_TEAM'; payload: Team }
     | { type: 'UPDATE_CHAT_HISTORY'; payload: ChatHistoryItem[] }
     | { type: 'UPDATE_AGENTS'; payload: Agent[] }
-    | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] }
-    | { type: 'TRIGGER_AI_REDIRECT_CONFIRMATION'; payload: { message: string; originalUserInput: string } };
+    | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] };
 
 function appReducer(state: AppState, action: AppAction): AppState {
     switch (action.type) {
@@ -130,9 +127,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'FINISH_TEAM_BUILDER':
             return { ...state, status: 'idle', teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: action.payload.newTeam, activeDesignSession: null, view: 'team_management' };
         
-        case 'TRIGGER_AI_REDIRECT_CONFIRMATION':
-            return { ...state, status: 'idle', dialog: 'ai_redirect_confirmation', redirectInfo: action.payload };
-
         case 'UPDATE_TEAMS_LIST': return { ...state, teams: action.payload };
         case 'UPDATE_ACTIVE_TEAM':
              const newTeams = state.teams.map(t => t.teamId === action.payload.teamId ? action.payload : t);
@@ -141,7 +135,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'UPDATE_AGENTS': return { ...state, agents: action.payload };
         case 'UPDATE_DESIGN_SESSIONS': return { ...state, designSessions: action.payload };
         case 'OPEN_DIALOG': return { ...state, dialog: action.payload.dialog, chatToEdit: action.payload.chat || null, agentToDelete: action.payload.agent || null, designSessionToDelete: action.payload.designSession || null };
-        case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null, redirectInfo: null };
+        case 'CLOSE_DIALOG': return { ...state, dialog: 'none', chatToEdit: null, agentToDelete: null, designSessionToDelete: null };
         default: return state;
     }
 }
@@ -209,20 +203,12 @@ export default function HomePage() {
 
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
-        if (!team || team.teamId === state.activeTeam?.teamId) {
-            return;
-        }
-        if (state.view === 'team_management') {
-            dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: team });
-        } else {
-            dispatch({ type: 'SET_ACTIVE_TEAM_FOR_CHAT', payload: team });
-        }
+        if (!team || team.teamId === state.activeTeam?.teamId) return;
+        if (state.view === 'team_management') dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: team });
+        else dispatch({ type: 'SET_ACTIVE_TEAM_FOR_CHAT', payload: team });
     };
     
-    const handleModeChange = (mode: 'chat' | 'team') => {
-        dispatch({ type: 'SWITCH_MODE', payload: mode });
-    };
-    
+    const handleModeChange = (mode: 'chat' | 'team') => dispatch({ type: 'SWITCH_MODE', payload: mode });
     const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
     
     const handleLoadChat = useCallback(async (chatId: string) => {
@@ -244,49 +230,49 @@ export default function HomePage() {
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
 
         if (data) {
-            const lastMessage = data.messages[data.messages.length - 1];
-            try {
-                const parsedContent = JSON.parse(lastMessage.content);
-                if (parsedContent.action === 'redirect_to_team_builder') {
-                    dispatch({ 
-                        type: 'TRIGGER_AI_REDIRECT_CONFIRMATION', 
-                        payload: { message: parsedContent.message, originalUserInput: userInput }
-                    });
-                    // Revert the optimistic message update since we are redirecting
-                    dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: state.messages, chatId: state.currentChatId, chatHistory: state.chatHistory } });
-                    return; 
-                }
-            } catch (error) {
-                // Not a JSON signal
-            }
+            // MODIFICATION: The ActionMessage component now handles parsing, so we just update the messages.
             const needsHistoryRefresh = !state.currentChatId;
             const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
             dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
         }
     };
+    
+    // --- NEW ACTION HANDLER ---
+    const handleChatAction = async (actionId: string) => {
+        // Find the last user message that prompted this action
+        const lastUserMessage = [...state.messages].reverse().find(m => m.role === 'user');
+        if (!lastUserMessage) return; // Should not happen
 
-    const handleConfirmRedirect = async () => {
-        if (!state.redirectInfo) return;
-        const { originalUserInput } = state.redirectInfo;
-
-        dispatch({ type: 'CLOSE_DIALOG' });
-        dispatch({ type: 'START_LOADING' });
-
-        const redirectBody = JSON.stringify({
-            messages: [], // Start with a clean message history
-            initial_user_idea: originalUserInput // Pass the context "behind the scenes"
+        // Remove the action message from the UI immediately
+        const messagesWithoutAction = state.messages.filter(m => {
+            try {
+                const content = JSON.parse(m.content);
+                return !(content.text && content.actions);
+            } catch { return true; }
         });
-        const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
-        if (updatedSession) {
-            dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+
+        if (actionId === 'confirm_redirect') {
+            dispatch({ type: 'START_LOADING' });
+            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: messagesWithoutAction } });
+
+            const redirectBody = JSON.stringify({
+                messages: [],
+                initial_user_idea: lastUserMessage.content
+            });
+            const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
+            if (updatedSession) {
+                dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+            }
+        } else if (actionId === 'cancel_redirect') {
+            const finalMessages = [...messagesWithoutAction, { role: 'assistant', content: "Okay, let's stay here. What else can I help you with?" }];
+            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: finalMessages } });
         }
     };
-    
+
     const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
     const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
     
     const handleUpdateMission = async (mission: string) => {
-        // ... (code unchanged)
         if (!state.activeTeam || mission === state.activeTeam.mission) return;
         dispatch({ type: 'START_LOADING' });
         const body = JSON.stringify({ mission: mission });
@@ -298,7 +284,6 @@ export default function HomePage() {
     };
     
     const handleSubmitTeamBuilder = async (e: React.FormEvent) => {
-        // ... (code unchanged)
         e.preventDefault();
         const userInputContent = currentInput.trim();
         if (!userInputContent) return;
@@ -345,19 +330,16 @@ export default function HomePage() {
     };
     
     const handleDialogOpen = (dialog: AppState['dialog'], options?: { chat?: ChatHistoryItem, agent?: Agent, designSession?: DesignSession }) => {
-        // ... (code unchanged)
         if (options?.chat) setDialogInput(options.chat.title);
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, ...options } });
     };
     
     const handleDialogClose = () => {
-        // ... (code unchanged)
         dispatch({ type: 'CLOSE_DIALOG' });
         setDialogInput("");
     };
     
     const handleRenameChat = async () => {
-        // ... (code unchanged)
         if (!dialogInput || !state.chatToEdit) return;
         const { chatId } = state.chatToEdit;
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}/rename`, { method: 'POST', body: JSON.stringify({ new_title: dialogInput }) });
@@ -369,7 +351,6 @@ export default function HomePage() {
     };
     
     const handleDeleteChat = async () => {
-        // ... (code unchanged)
         if (!state.chatToEdit || !state.activeTeam) return;
         const { chatId } = state.chatToEdit;
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`, { method: 'DELETE' });
@@ -382,13 +363,11 @@ export default function HomePage() {
     };
     
     const handleEditAgentClick = (agent: Agent | null) => {
-        // ... (code unchanged)
         if (agent && !agent.agentId) setAgentToEdit({ ...agent, system_prompt: '' });
         else setAgentToEdit(agent);
     };
     
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
-        // ... (code unchanged)
         if (!state.activeTeam) return;
         const isCreating = !agentToEdit?.agentId;
         const url = isCreating ? `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents` : `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentToEdit.agentId}`;
@@ -401,13 +380,9 @@ export default function HomePage() {
         }
     };
     
-    const handleDeleteAgent = (agent: Agent) => {
-        // ... (code unchanged)
-        dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
-    };
+    const handleDeleteAgent = (agent: Agent) => dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
     
     const handleConfirmDeleteAgent = async () => {
-        // ... (code unchanged)
         if (!state.activeTeam || !state.agentToDelete) return;
         const { agentId } = state.agentToDelete;
         const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`, { method: 'DELETE' });
@@ -419,13 +394,9 @@ export default function HomePage() {
         }
     };
 
-    const handleDeleteDesignSession = async (session: DesignSession) => {
-        // ... (code unchanged)
-        dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_design_session', designSession: session } });
-    };
+    const handleDeleteDesignSession = (session: DesignSession) => dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_design_session', designSession: session } });
 
     const handleConfirmDeleteDesignSession = async () => {
-        // ... (code unchanged)
         if (!state.designSessionToDelete) return;
         const { designSessionId } = state.designSessionToDelete;
         const data = await safeFetch(`${backendApiUrl}/team-builder/sessions/${designSessionId}`, { method: 'DELETE' });
@@ -440,29 +411,23 @@ export default function HomePage() {
     };
     
     const renderMainContent = () => {
-        // ... (code unchanged)
-        if (state.status === 'error') {
-            return <div className="p-8 text-red-500">Error: {state.error}</div>;
-        }
-
-        if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession) {
-            return <div className="p-8">Loading...</div>;
-        }
+        if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
+        if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession) return <div className="p-8">Loading...</div>;
 
         switch (state.view) {
-            case 'welcome':
-                return <WelcomeScreen />;
+            case 'welcome': return <WelcomeScreen />;
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen />;
-                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} />;
+                // MODIFICATION: Pass the new handleChatAction function to the onAction prop.
+                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} onAction={handleChatAction} />;
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
                 return <TeamManagementView team={state.activeTeam} agents={state.agents} isLoading={state.status === 'loading'} onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} onEditAgent={handleEditAgentClick} onUpdateMission={handleUpdateMission} />;
             case 'team_builder':
                 const builderMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
-                return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} />;
-            default:
-                return <WelcomeScreen />;
+                 // MODIFICATION: Pass a placeholder onAction prop for now.
+                return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} onAction={() => {}} />;
+            default: return <WelcomeScreen />;
         }
     };
     
@@ -492,7 +457,7 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            {/* Dialogs (Unchanged) */}
+            {/* MODIFICATION: Removed the 'ai_redirect_confirmation' Dialog */}
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
             <Dialog open={state.dialog === 'delete_agent'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Agent</DialogTitle></DialogHeader> <p>Are you sure you want to permanently delete the agent "{state.agentToDelete?.name}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleConfirmDeleteAgent}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
@@ -503,16 +468,6 @@ export default function HomePage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
                         <Button variant="destructive" onClick={handleConfirmDeleteDesignSession}>Delete</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-            <Dialog open={state.dialog === 'ai_redirect_confirmation'} onOpenChange={handleDialogClose}>
-                <DialogContent>
-                    <DialogHeader><DialogTitle>Switch to Team Builder?</DialogTitle></DialogHeader>
-                    <DialogDescription>{state.redirectInfo?.message}</DialogDescription>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
-                        <Button onClick={handleConfirmRedirect}>Yes, let's build a new team</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
