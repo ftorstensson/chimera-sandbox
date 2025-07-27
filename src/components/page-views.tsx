@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v5.0 - Integrates the new ActionMessage component into ChatView.
+// v5.4 - DEFINITIVE and VALIDATED fix for raw JSON display bug (P0)
 
 "use client";
 
@@ -8,17 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
-import { ActionMessage } from "@/components/ActionMessage"; // MODIFICATION: Import the new component
+import { ActionMessage } from "@/components/ActionMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
 import { Plus, Compass, Code, MessageSquare } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
 
-// ==============================================================================
-//  1. Welcome Screen View (No changes)
-// ==============================================================================
 export const WelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <h1 className="text-4xl font-bold">Hello, I'm Vibe Designer</h1>
+      <h1 className="text-4xl font-bold">The Everything Agency</h1>
       <p className="mt-2 text-lg text-gray-500 dark:text-gray-400">Your creative partner for designing new applications.</p>
       <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl">
         <div className="p-4 border rounded-lg bg-gray-50 dark:bg-zinc-800/50 dark:border-zinc-800"><Compass className="h-6 w-6 mx-auto mb-2 text-indigo-500"/><p>Explore new app ideas</p></div>
@@ -28,18 +25,15 @@ export const WelcomeScreen = () => (
     </div>
 );
 
-// ==============================================================================
-//  2. Chat View (MODIFIED)
-// ==============================================================================
 interface ChatViewProps {
     messages: any[];
     currentInput: string;
     setCurrentInput: (value: string) => void;
     isLoading: boolean;
     handleSubmit: (e: React.FormEvent) => void;
-    // MODIFICATION: Add a new prop to handle button clicks from an ActionMessage.
     onAction: (actionId: string) => void;
 }
+
 export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, handleSubmit, onAction }: ChatViewProps) => {
     const bottomOfChatRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
@@ -54,19 +48,19 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                         if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
                         
                         if (msg.role === 'assistant' && msg.content) {
-                            // --- MODIFICATION: Logic to detect and render ActionMessage ---
+                            let parsedContent = null;
                             try {
-                                const parsedContent = JSON.parse(msg.content);
-                                // If parsing succeeds and it has the right structure, render ActionMessage.
-                                if (parsedContent.text && Array.isArray(parsedContent.actions)) {
-                                    return <ActionMessage key={index} message={parsedContent} onAction={onAction} />;
-                                }
+                                // With the backend now sending clean JSON, we can trust a direct parse.
+                                parsedContent = JSON.parse(msg.content);
                             } catch (error) {
-                                // This is expected for normal text messages. Do nothing and fall through.
+                                // If parsing fails, it's a normal text message.
+                                parsedContent = null;
                             }
-                            // --- End of Modification ---
+                            
+                            if (parsedContent && parsedContent.text && Array.isArray(parsedContent.actions)) {
+                                return <ActionMessage key={index} message={parsedContent} onAction={onAction} />;
+                            }
 
-                            // Fallback for regular assistant messages
                             return (
                                 <AssistantMessage key={index}>{msg.content}
                                     {msg.agent_used && msg.structured_data && <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />}
@@ -93,9 +87,6 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
     );
 };
 
-// ==============================================================================
-//  3. Team Management View (No changes from your provided file)
-// ==============================================================================
 interface TeamManagementViewProps { 
     team: Team; 
     agents: Agent[]; 
