@@ -1,5 +1,5 @@
 // src/components/AgentEditDialog.tsx
-// v3.1 - Modified to trigger confirmation dialog on delete
+// v3.2 - DEFINITIVE FIX for non-functioning close button (P1)
 
 "use client";
 
@@ -15,7 +15,7 @@ export interface AgentEditDialogProps {
   onOpenChange: (isOpen: boolean) => void;
   agentToEdit: Agent | null;
   onSave: (agentData: { name: string; system_prompt: string }) => Promise<void>;
-  onDelete: (agent: Agent) => void; // MODIFIED: This now passes the full agent object
+  onDelete: (agent: Agent) => void;
 }
 
 export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onDelete }: AgentEditDialogProps) {
@@ -39,7 +39,6 @@ export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onD
     setIsSaving(false);
   };
 
-  // MODIFIED: This function now just calls the parent onDelete with the agent object
   const handleDelete = () => {
     if (agentToEdit) {
         onDelete(agentToEdit);
@@ -49,7 +48,9 @@ export function AgentEditDialog({ isOpen, onOpenChange, agentToEdit, onSave, onD
   const isNewAgent = !agentToEdit?.agentId;
 
   return (
-    <Dialog open={isOpen} onOpen-change={onOpenChange}>
+    // --- THIS IS THE FIX ---
+    // The prop is now correctly named `onOpenChange` (camelCase).
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>{isNewAgent ? "Create New Agent" : "Edit Agent"}</DialogTitle>
