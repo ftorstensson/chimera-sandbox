@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v5.4 - DEFINITIVE and VALIDATED fix for raw JSON display bug (P0)
+// v5.7 - DEFINITIVE FIX for [Object object] bug and inter-message spacing
 
 "use client";
 
@@ -42,18 +42,16 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                <div className="w-full max-w-3xl mx-auto">
+            <div className="flex-1 overflow-y-auto p-6">
+                <div className="w-full max-w-3xl mx-auto space-y-6">
                     {messages.length === 0 && !isLoading ? <WelcomeScreen /> : messages.map((msg, index) => {
                         if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
                         
                         if (msg.role === 'assistant' && msg.content) {
                             let parsedContent = null;
                             try {
-                                // With the backend now sending clean JSON, we can trust a direct parse.
                                 parsedContent = JSON.parse(msg.content);
                             } catch (error) {
-                                // If parsing fails, it's a normal text message.
                                 parsedContent = null;
                             }
                             
@@ -69,7 +67,9 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                         }
                         return null;
                     })}
-                    {isLoading && <div className="flex justify-start"><div className="bg-gray-200 dark:bg-zinc-700 p-4 rounded-2xl rounded-bl-none shadow-sm"><span className="animate-pulse">...</span></div></div>}
+                    
+                    {isLoading && <div className="flex justify-start"><div className="prose dark:prose-invert max-w-none text-foreground/90"><span className="animate-pulse">...</span></div></div>}
+                    
                     <div ref={bottomOfChatRef}></div>
                 </div>
             </div>

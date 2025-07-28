@@ -103,5 +103,10 @@ export default {
   		}
   	}
   },
-  plugins: [require('tailwindcss-animate')],
+  // --- THIS IS THE CORRECTLY MERGED FIX ---
+  // We are adding `@tailwindcss/typography` to your existing plugins.
+  plugins: [
+    require('tailwindcss-animate'),
+    require('@tailwindcss/typography')
+  ],
 } satisfies Config;
