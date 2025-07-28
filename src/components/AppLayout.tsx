@@ -1,5 +1,5 @@
 // src/components/AppLayout.tsx
-// v4.0 - Adds Mission Statement to Team Management UI
+// v4.1 - Removes redundant Team Mission editor from the sidebar
 
 "use client"; 
 
@@ -7,20 +7,20 @@ import React, { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea"; // Import Textarea
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MessageSquare, Users, Plus, Settings, Sun, Moon, Menu, Sparkles, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 
 export interface DesignSession { designSessionId: string; name: string; messages: any[]; }
-export interface Team { teamId: string; name: string; mission: string; } // Added mission
+export interface Team { teamId: string; name: string; mission: string; }
 export interface ChatHistoryItem { chatId: string; title: string; }
 export interface Agent { agentId: string; name: string; system_prompt: string; }
 
 const sidebarHoverStyle = "hover:bg-gray-200 dark:hover:bg-zinc-800";
 const sidebarSelectedStyle = "!bg-gray-300 text-gray-900 dark:!bg-zinc-700 dark:text-gray-100";
 
+// --- ChatModeSidebar is unchanged ---
 const ChatModeSidebar = (props: { teams: Team[]; activeTeam: Team | null; onTeamSelect: (teamId: string) => void; chatHistory: ChatHistoryItem[]; onNewChat: () => void; onLoadChat: (chatId: string) => void; currentChatId: string | null; onRenameChat: (chat: ChatHistoryItem) => void; onDeleteChat: (chat: ChatHistoryItem) => void; }) => (
     <div className="flex flex-col h-full">
         <div className="p-2 flex-shrink-0">
@@ -49,6 +49,8 @@ const ChatModeSidebar = (props: { teams: Team[]; activeTeam: Team | null; onTeam
     </div>
 );
 
+// --- THIS IS THE FIX ---
+// The `TeamModeSidebar` component is simplified.
 const TeamModeSidebar = (props: { 
     teams: Team[]; 
     designSessions: DesignSession[]; 
@@ -58,18 +60,7 @@ const TeamModeSidebar = (props: {
     onCreateTeamWithAIClick: () => void; 
     onLoadDesignSession: (session: DesignSession) => void;
     onDeleteDesignSession: (session: DesignSession) => void;
-    onUpdateMission: (mission: string) => void; // New prop
 }) => {
-    const [missionText, setMissionText] = useState(props.activeTeam?.mission || "");
-
-    useEffect(() => {
-        setMissionText(props.activeTeam?.mission || "");
-    }, [props.activeTeam]);
-
-    const handleMissionSave = () => {
-        props.onUpdateMission(missionText);
-    };
-
     return ( 
     <div className="flex flex-col h-full"> 
         <div className="p-2 flex-shrink-0">
@@ -107,30 +98,11 @@ const TeamModeSidebar = (props: {
                     </Button>
                 ))}
             </nav>
-
-            {/* --- NEW MISSION STATEMENT UI --- */}
-            {props.activeTeam && !props.activeDesignSession && (
-                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-zinc-800 px-2">
-                    <p className="px-1 text-xs uppercase text-gray-500 tracking-wider">Team Mission</p>
-                    <Textarea 
-                        className="mt-2"
-                        value={missionText}
-                        onChange={(e) => setMissionText(e.target.value)}
-                        placeholder="Define the core purpose of this team..."
-                    />
-                    <Button 
-                        size="sm" 
-                        className="w-full mt-2" 
-                        onClick={handleMissionSave}
-                        disabled={missionText === props.activeTeam.mission}
-                    >
-                        Save Mission
-                    </Button>
-                </div>
-            )}
+            {/* The redundant Mission Statement UI has been completely removed. */}
         </div> 
     </div> 
 )};
+// --- End of Fix ---
 
 export interface AppLayoutProps { 
     children: React.ReactNode; 
@@ -150,7 +122,7 @@ export interface AppLayoutProps {
     onDeleteDesignSession: (session: DesignSession) => void;
     onRenameChat: (chat: ChatHistoryItem) => void; 
     onDeleteChat: (chat: ChatHistoryItem) => void; 
-    onUpdateMission: (mission: string) => void; // New prop
+    onUpdateMission: (mission: string) => void;
 }
 
 const AppLayoutContent = (props: AppLayoutProps) => {
