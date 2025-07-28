@@ -146,7 +146,7 @@ const AppLayoutContent = (props: AppLayoutProps) => {
             <div className={`flex-shrink-0 border-t border-gray-200 dark:border-zinc-800 mt-2 pt-2 flex items-center justify-between transition-opacity duration-200 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}> <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className={sidebarHoverStyle}> <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" /> <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" /> </Button> <Button variant="ghost" className={`text-sm ${sidebarHoverStyle}`}> <Settings className="mr-2 h-4 w-4" /> Settings </Button> </div>
         </div>
       </aside>
-      <div className="flex flex-col flex-1 h-full min-w-0"> <header className="flex items-center p-2 flex-shrink-0 border-b border-gray-200 dark:border-zinc-800"> <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mr-2 text-gray-500"> <Menu size={24} /> </Button> <h1 className="text-xl font-semibold">Vibe Designer AI</h1> </header> <main className="flex-1 overflow-y-auto"> {props.children} </main> </div>
+      <div className="flex flex-col flex-1 h-full min-w-0"> <header className="flex items-center p-2 flex-shrink-0 border-b border-gray-200 dark:border-zinc-800"> <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mr-2 text-gray-500"> <Menu size={24} /> </Button> <h1 className="text-xl font-semibold">GoddessAI - the Everything Agency</h1> </header> <main className="flex-1 overflow-y-auto"> {props.children} </main> </div>
     </div>
   );
 }
