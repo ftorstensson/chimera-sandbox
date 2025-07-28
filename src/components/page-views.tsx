@@ -1,16 +1,17 @@
 // src/components/page-views.tsx
-// v5.7 - DEFINITIVE FIX for [Object object] bug and inter-message spacing
+// v6.2 - Consolidates all team actions into a single dropdown menu
 
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
 import { ActionMessage } from "@/components/ActionMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
-import { Plus, Compass, Code, MessageSquare } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Plus, Compass, Code, MessageSquare, Edit, MoreHorizontal, Trash2, FileText } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
 
 export const WelcomeScreen = () => (
@@ -33,7 +34,6 @@ interface ChatViewProps {
     handleSubmit: (e: React.FormEvent) => void;
     onAction: (actionId: string) => void;
 }
-
 export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, handleSubmit, onAction }: ChatViewProps) => {
     const bottomOfChatRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
@@ -67,9 +67,7 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                         }
                         return null;
                     })}
-                    
                     {isLoading && <div className="flex justify-start"><div className="prose dark:prose-invert max-w-none text-foreground/90"><span className="animate-pulse">...</span></div></div>}
-                    
                     <div ref={bottomOfChatRef}></div>
                 </div>
             </div>
@@ -94,39 +92,64 @@ interface TeamManagementViewProps {
     onCreateAgent: () => void;
     onEditAgent: (agent: Agent) => void;
     onUpdateMission: (mission: string) => void;
+    onRenameTeam: () => void;
+    onDeleteTeam: () => void;
 }
-export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent, onUpdateMission }: TeamManagementViewProps) => {
-    const [missionText, setMissionText] = React.useState(team.mission);
+export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onEditAgent, onUpdateMission, onRenameTeam, onDeleteTeam }: TeamManagementViewProps) => {
+    const [missionText, setMissionText] = useState(team.mission);
+    const [isEditingMission, setIsEditingMission] = useState(false);
 
-    React.useEffect(() => {
+    useEffect(() => {
         setMissionText(team.mission);
-    }, [team.mission]);
+        setIsEditingMission(false);
+    }, [team]);
     
+    const handleSaveMission = () => {
+        onUpdateMission(missionText);
+        setIsEditingMission(false);
+    };
+
+    const handleCancelEdit = () => {
+        setMissionText(team.mission);
+        setIsEditingMission(false);
+    };
+
     return ( 
     <div className="p-8 max-w-4xl mx-auto"> 
         <header className="pb-4 border-b border-gray-200 dark:border-zinc-800"> 
             <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold">{team.name}</h1> 
-                <Button onClick={onCreateAgent}> 
-                    <Plus className="mr-2 h-4 w-4" /> New Agent 
-                </Button> 
+                <h1 className="text-3xl font-bold">{team.name}</h1>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline">
+                            <MoreHorizontal className="mr-2 h-4 w-4" /> Team Actions
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={onCreateAgent}><Plus className="mr-2 h-4 w-4"/>New Agent</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsEditingMission(true)}><Edit className="mr-2 h-4 w-4"/>Edit Mission</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={onRenameTeam}><FileText className="mr-2 h-4 w-4"/>Rename Team</DropdownMenuItem>
+                        <DropdownMenuItem className="text-red-500" onClick={onDeleteTeam}><Trash2 className="mr-2 h-4 w-4"/>Delete Team</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
-            <div className="mt-4">
+            <div className="mt-6">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Team Mission (Source of Truth)</p>
-                <Textarea
-                    value={missionText}
-                    onChange={(e) => setMissionText(e.target.value)}
-                    placeholder="Define the core purpose of this team..."
-                    className="w-full"
-                />
-                <Button 
-                    size="sm" 
-                    className="mt-2" 
-                    onClick={() => onUpdateMission(missionText)}
-                    disabled={missionText === team.mission}
-                >
-                    Save Mission
-                </Button>
+                
+                {isEditingMission ? (
+                    <>
+                        <Textarea value={missionText} onChange={(e) => setMissionText(e.target.value)} placeholder="Define the core purpose of this team..." className="w-full text-base"/>
+                        <div className="mt-2 flex space-x-2">
+                            <Button size="sm" onClick={handleSaveMission} disabled={missionText === team.mission}>Save Mission</Button>
+                            <Button size="sm" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
+                        </div>
+                    </>
+                ) : (
+                    <p className="text-base text-foreground/80 flex-grow whitespace-pre-wrap min-h-[60px]">
+                        {team.mission || "No mission defined yet."}
+                    </p>
+                )}
             </div>
         </header> 
         <div className="mt-6"> 
