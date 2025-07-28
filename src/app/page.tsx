@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v54.1 - DEFINITIVE FIX for TypeScript errors and team actions
+// v54.3 - DEFINITIVE FIX for team deletion and JSON parsing bugs
 
 "use client";
 
@@ -278,10 +278,13 @@ export default function HomePage() {
         const designSessionId = state.activeDesignSession?.designSessionId;
         const body = JSON.stringify({ messages: messagesForApi, designSessionId });
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
+        
         if (updatedSession) {
             const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
             const content = lastMessage?.content?.trim() || '';
-            const match = content.match(/^```json\s*([\s\S]*?)\s*```$/);
+            
+            const match = content.match(/```json\s*([\s\S]*?)\s*```/);
+            
             if (match && match[1]) {
                 try {
                     const parsedJson = JSON.parse(match[1]);
@@ -289,13 +292,19 @@ export default function HomePage() {
                         dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
                         const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
-                        if (newTeamResponse && newTeamResponse.success) {
+                        
+                        if (newTeamResponse && newTeamResponse.teamId) {
                             const [latestTeams, latestDesignSessions] = await Promise.all([
                                 safeFetch(`${backendApiUrl}/teams`),
                                 safeFetch(`${backendApiUrl}/team-builder/sessions`)
                             ]);
                             if (latestTeams !== null && latestDesignSessions !== null) {
-                                dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam: newTeamResponse, teams: latestTeams, designSessions: latestDesignSessions } });
+                                const newTeam = latestTeams.find((t: Team) => t.teamId === newTeamResponse.teamId);
+                                if (newTeam) {
+                                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam, teams: latestTeams, designSessions: latestDesignSessions } });
+                                } else {
+                                    dispatch({ type: 'SET_ERROR', payload: `Could not find newly created team in the list.`});
+                                }
                             }
                         } else {
                             dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
@@ -417,6 +426,8 @@ export default function HomePage() {
             const newTeams = state.teams.filter(t => t.teamId !== teamId);
             dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
             if (state.activeTeam?.teamId === teamId) {
+                // --- THIS IS THE FIX for the delete error ---
+                // We now correctly pass the first team from the remaining list, or null.
                 dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: newTeams[0] || null });
             }
             handleDialogClose();
@@ -485,9 +496,36 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader> <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." /> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button onClick={handleRenameChat}>Rename</Button></DialogFooter> </DialogContent> </Dialog>
-            <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader> <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleDeleteChat}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
-            <Dialog open={state.dialog === 'delete_agent'} onOpenChange={handleDialogClose}> <DialogContent> <DialogHeader><DialogTitle>Delete Agent</DialogTitle></DialogHeader> <p>Are you sure you want to permanently delete the agent "{state.agentToDelete?.name}"?</p> <DialogFooter><Button variant="outline" onClick={handleDialogClose}>Cancel</Button><Button variant="destructive" onClick={handleConfirmDeleteAgent}>Delete</Button></DialogFooter> </DialogContent> </Dialog>
+            <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader>
+                    <Input value={dialogInput} onChange={(e) => setDialogInput(e.target.value)} placeholder="Enter new title..." />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
+                        <Button onClick={handleRenameChat}>Rename</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={state.dialog === 'delete_chat'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Delete Chat</DialogTitle></DialogHeader>
+                    <p>Are you sure you want to delete "{state.chatToEdit?.title}"?</p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleDeleteChat}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={state.dialog === 'delete_agent'} onOpenChange={handleDialogClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Delete Agent</DialogTitle></DialogHeader>
+                    <p>Are you sure you want to permanently delete the agent "{state.agentToDelete?.name}"?</p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleDialogClose}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleConfirmDeleteAgent}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <Dialog open={state.dialog === 'delete_design_session'} onOpenChange={handleDialogClose}>
                 <DialogContent>
                     <DialogHeader><DialogTitle>Delete Design Session</DialogTitle></DialogHeader>
