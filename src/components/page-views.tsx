@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v6.2 - Consolidates all team actions into a single dropdown menu
+// v6.3 - Renders markdown for agent prompts in team overview
 
 "use client";
 
@@ -13,6 +13,8 @@ import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Plus, Compass, Code, MessageSquare, Edit, MoreHorizontal, Trash2, FileText } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export const WelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -157,12 +159,18 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
             {isLoading ? <p>Loading agents...</p> : ( 
                 <div className="space-y-4"> 
                     {agents.map(agent => ( 
-                        <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-center hover:bg-gray-50 dark:hover:bg-zinc-800/50"> 
-                            <div> 
-                                <h3 className="font-semibold">{agent.name}</h3> 
-                                <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-lg">{agent.system_prompt}</p> 
+                        <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-start hover:bg-gray-50 dark:hover:bg-zinc-800/50"> 
+                            <div className="flex-grow mr-4 overflow-hidden"> 
+                                <h3 className="font-semibold">{agent.name}</h3>
+                                {/* --- THIS IS THE FIX --- */}
+                                {/* The system prompt is now rendered with prose styles, and truncated with a line-clamp for cleanliness */}
+                                <div className="prose prose-sm dark:prose-invert max-w-none text-gray-500 dark:text-gray-400 line-clamp-2">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {agent.system_prompt}
+                                    </ReactMarkdown>
+                                </div>
                             </div> 
-                            <Button variant="outline" onClick={() => onEditAgent(agent)}>
+                            <Button variant="outline" size="sm" onClick={() => onEditAgent(agent)} className="flex-shrink-0">
                                 Edit
                             </Button>
                         </div> 
