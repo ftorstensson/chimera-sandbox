@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v54.3 - DEFINITIVE FIX for team deletion and JSON parsing bugs
+// v55.0 - Implements a welcoming first-chat experience
 
 "use client";
 
@@ -93,7 +93,18 @@ function appReducer(state: AppState, action: AppAction): AppState {
                 return { ...state, view: 'team_management', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
             }
             return { ...state, view: 'chat', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
-        case 'START_NEW_CHAT': return { ...state, currentChatId: null, messages: [], view: 'chat' };
+        
+        // --- THIS IS THE FIX ---
+        case 'START_NEW_CHAT':
+            if (!state.activeTeam) {
+                return { ...state, currentChatId: null, messages: [], view: 'chat' };
+            }
+            const welcomeMessage = {
+                role: 'assistant',
+                content: `Hello! I'm the Project Manager for the **${state.activeTeam.name}** team. I'm ready to help you with your first mission. What would you like to accomplish?`
+            };
+            return { ...state, currentChatId: null, messages: [welcomeMessage], view: 'chat' };
+
         case 'LOAD_CHAT_SUCCESS': return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
         case 'CHAT_RESPONSE_SUCCESS':
             return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId, chatHistory: action.payload.chatHistory || state.chatHistory };
@@ -426,8 +437,6 @@ export default function HomePage() {
             const newTeams = state.teams.filter(t => t.teamId !== teamId);
             dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
             if (state.activeTeam?.teamId === teamId) {
-                // --- THIS IS THE FIX for the delete error ---
-                // We now correctly pass the first team from the remaining list, or null.
                 dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: newTeams[0] || null });
             }
             handleDialogClose();
