@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v6.3 - Renders markdown for agent prompts in team overview
+// v6.6 - Correctly parses and hides the 'execute_task' signal.
 
 "use client";
 
@@ -8,23 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import UserMessage from "@/components/UserMessage";
 import AssistantMessage from "@/components/AssistantMessage";
-import { ActionMessage } from "@/components/ActionMessage";
+import { ActionMessage, ActionMessageProps } from "@/components/ActionMessage";
 import ExpertOutputDisplay from "@/components/ExpertOutputDisplay";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { Plus, Compass, Code, MessageSquare, Edit, MoreHorizontal, Trash2, FileText } from 'lucide-react';
+import { Plus, Compass, Code, MessageSquare, Edit, MoreHorizontal, Trash2, FileText, Send, Zap } from 'lucide-react';
 import type { Agent, Team } from "@/components/AppLayout";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { parseAssistantResponse } from "@/lib/utils";
 
 export const WelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
       <h1 className="text-4xl font-bold">The Everything Agency</h1>
       <p className="mt-2 text-lg text-gray-500 dark:text-gray-400">Your creative partner for designing new applications.</p>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl">
-        <div className="p-4 border rounded-lg bg-gray-50 dark:bg-zinc-800/50 dark:border-zinc-800"><Compass className="h-6 w-6 mx-auto mb-2 text-indigo-500"/><p>Explore new app ideas</p></div>
-        <div className="p-4 border rounded-lg bg-gray-50 dark:bg-zinc-800/50 dark:border-zinc-800"><Code className="h-6 w-6 mx-auto mb-2 text-indigo-500"/><p>Design application architecture</p></div>
-        <div className="p-4 border rounded-lg bg-gray-50 dark:bg-zinc-800/50 dark:border-zinc-800"><MessageSquare className="h-6 w-6 mx-auto mb-2 text-indigo-500"/><p>Craft user-centric experiences</p></div>
-      </div>
     </div>
 );
 
@@ -33,60 +29,107 @@ interface ChatViewProps {
     currentInput: string;
     setCurrentInput: (value: string) => void;
     isLoading: boolean;
-    handleSubmit: (e: React.FormEvent) => void;
+    holdingMessage: string | null;
+    handleSendMessage: (isMission: boolean) => void;
     onAction: (actionId: string) => void;
 }
-export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, handleSubmit, onAction }: ChatViewProps) => {
+export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, holdingMessage, handleSendMessage, onAction }: ChatViewProps) => {
     const bottomOfChatRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
         bottomOfChatRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, holdingMessage]);
+
+    const isSendDisabled = isLoading || !currentInput.trim();
 
     return (
         <div className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-6">
                 <div className="w-full max-w-3xl mx-auto space-y-6">
-                    {messages.length === 0 && !isLoading ? <WelcomeScreen /> : messages.map((msg, index) => {
-                        if (msg.role === 'user' && msg.content) return <UserMessage key={index}>{msg.content}</UserMessage>;
+                    {messages.map((msg, index) => {
+                        if (msg.role === 'user' && msg.content) {
+                            return <UserMessage key={index}>{msg.content}</UserMessage>;
+                        }
                         
                         if (msg.role === 'assistant' && msg.content) {
-                            let parsedContent = null;
-                            try {
-                                parsedContent = JSON.parse(msg.content);
-                            } catch (error) {
-                                parsedContent = null;
-                            }
+                            const parsed = parseAssistantResponse(msg.content);
                             
-                            if (parsedContent && parsedContent.text && Array.isArray(parsedContent.actions)) {
-                                return <ActionMessage key={index} message={parsedContent} onAction={onAction} />;
+                            // --- THIS IS THE FIX ---
+                            // If the message is a task signal, we render nothing, because the global
+                            // holdingMessage state will display the "working" indicator.
+                            if (parsed.action === 'execute_task') {
+                                return null;
                             }
 
+                            if (parsed.action === 'redirect_to_team_builder' && parsed.text && parsed.actions) {
+                                const messageProps: ActionMessageProps = {
+                                    message: { text: parsed.text, actions: parsed.actions },
+                                    onAction: onAction
+                                };
+                                return <ActionMessage key={index} {...messageProps} />;
+                            }
+                            
+                            // Otherwise, it's a normal conversational message.
                             return (
-                                <AssistantMessage key={index}>{msg.content}
+                                <AssistantMessage key={index}>
+                                    {parsed.text}
                                     {msg.agent_used && msg.structured_data && <ExpertOutputDisplay agentName={msg.agent_used} data={msg.structured_data} />}
                                 </AssistantMessage>
                             );
                         }
                         return null;
                     })}
-                    {isLoading && <div className="flex justify-start"><div className="prose dark:prose-invert max-w-none text-foreground/90"><span className="animate-pulse">...</span></div></div>}
+
+                    {holdingMessage && (
+                         <AssistantMessage>
+                            <div className="flex items-center space-x-2">
+                                <Zap className="h-5 w-5 animate-pulse text-yellow-500" />
+                                <span>{holdingMessage}</span>
+                            </div>
+                        </AssistantMessage>
+                    )}
+
+                    {isLoading && !holdingMessage && <div className="flex justify-start"><div className="prose dark:prose-invert max-w-none text-foreground/90"><span className="animate-pulse">...</span></div></div>}
                     <div ref={bottomOfChatRef}></div>
                 </div>
             </div>
             <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-zinc-800">
                 <div className="w-full max-w-3xl mx-auto">
-                    <form onSubmit={handleSubmit}>
-                        <div className="flex items-end space-x-2">
-                        <Textarea value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} placeholder="Describe your app idea..." className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-zinc-800" rows={1}/>
-                        <Button type="submit" className="rounded-lg h-10 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isLoading}>Send</Button>
-                        </div>
-                    </form>
+                    <div className="flex items-end space-x-2">
+                    <Textarea 
+                        value={currentInput} 
+                        onChange={(e) => setCurrentInput(e.target.value)} 
+                        placeholder="Ask a question or describe a new task..." 
+                        className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-zinc-800" 
+                        rows={1}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                if (!isSendDisabled) {
+                                   handleSendMessage(e.metaKey || e.ctrlKey);
+                                }
+                            }
+                        }}
+                    />
+                    <div className="flex flex-col space-y-1">
+                        <Button onClick={() => handleSendMessage(false)} className="rounded-lg h-10 w-24 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isSendDisabled}>
+                           <Send className="h-4 w-4 mr-2"/> Chat
+                        </Button>
+                        <Button onClick={() => handleSendMessage(true)} className="rounded-lg h-10 w-24 bg-yellow-500 hover:bg-yellow-600 text-white" disabled={isSendDisabled}>
+                            <Zap className="h-4 w-4 mr-2"/> Mission
+                        </Button>
+                    </div>
+                    </div>
+                     <p className="text-xs text-gray-500 mt-2 text-center">
+                        Use <span className="font-mono bg-gray-200 dark:bg-zinc-700 rounded px-1 py-0.5">Chat</span> for questions and <span className="font-mono bg-gray-200 dark:bg-zinc-700 rounded px-1 py-0.5">Mission</span> (or Cmd/Ctrl+Enter) for complex tasks.
+                    </p>
                 </div>
             </div>
         </div>
     );
 };
 
+
+// TeamManagementView remains unchanged
 interface TeamManagementViewProps { 
     team: Team; 
     agents: Agent[]; 
@@ -129,7 +172,7 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={onCreateAgent}><Plus className="mr-2 h-4 w-4"/>New Agent</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsEditingMission(true)}><Edit className="mr-2 h-4 w-4"/>Edit Mission</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsEditingMission(true)} disabled={isEditingMission}><Edit className="mr-2 h-4 w-4"/>Edit Mission</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onRenameTeam}><FileText className="mr-2 h-4 w-4"/>Rename Team</DropdownMenuItem>
                         <DropdownMenuItem className="text-red-500" onClick={onDeleteTeam}><Trash2 className="mr-2 h-4 w-4"/>Delete Team</DropdownMenuItem>
@@ -141,7 +184,7 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
                 
                 {isEditingMission ? (
                     <>
-                        <Textarea value={missionText} onChange={(e) => setMissionText(e.target.value)} placeholder="Define the core purpose of this team..." className="w-full text-base"/>
+                        <Textarea value={missionText} onChange={(e) => setMissionText(e.target.value)} placeholder="Define the core purpose of this team..." className="w-full text-base" rows={4}/>
                         <div className="mt-2 flex space-x-2">
                             <Button size="sm" onClick={handleSaveMission} disabled={missionText === team.mission}>Save Mission</Button>
                             <Button size="sm" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
@@ -162,8 +205,6 @@ export const TeamManagementView = ({ team, agents, isLoading, onCreateAgent, onE
                         <div key={agent.agentId} className="p-4 border dark:border-zinc-800 rounded-lg flex justify-between items-start hover:bg-gray-50 dark:hover:bg-zinc-800/50"> 
                             <div className="flex-grow mr-4 overflow-hidden"> 
                                 <h3 className="font-semibold">{agent.name}</h3>
-                                {/* --- THIS IS THE FIX --- */}
-                                {/* The system prompt is now rendered with prose styles, and truncated with a line-clamp for cleanliness */}
                                 <div className="prose prose-sm dark:prose-invert max-w-none text-gray-500 dark:text-gray-400 line-clamp-2">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                         {agent.system_prompt}

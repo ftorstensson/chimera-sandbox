@@ -1,9 +1,9 @@
 // src/app/page.tsx
-// v55.0 - Implements a welcoming first-chat experience
+// v61.0 - The Everything Agency - Mission Success
 
 "use client";
 
-import { useState, useEffect, useCallback, useReducer } from "react";
+import { useState, useEffect, useCallback, useReducer, useRef } from "react";
 import { AppLayout, Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -11,8 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
 import { Users } from 'lucide-react';
+import { parseAssistantResponse } from "@/lib/utils";
 
-// --- Interfaces and State Definitions ---
 interface AppState {
     view: 'welcome' | 'chat' | 'team_management' | 'team_builder';
     teams: Team[];
@@ -23,12 +23,13 @@ interface AppState {
     activeDesignSession: DesignSession | null;
     currentChatId: string | null;
     messages: any[];
+    holdingMessage: string | null; 
     dialog: 'none' | 'rename_chat' | 'delete_chat' | 'delete_agent' | 'delete_design_session' | 'rename_team' | 'delete_team';
     chatToEdit: ChatHistoryItem | null;
     agentToDelete: Agent | null;
     designSessionToDelete: DesignSession | null;
     teamToEdit: Team | null;
-    status: 'idle' | 'loading' | 'error';
+    status: 'idle' | 'loading' | 'error' | 'polling';
     error: string | null;
 }
 
@@ -42,6 +43,7 @@ const initialState: AppState = {
     activeDesignSession: null,
     currentChatId: null,
     messages: [],
+    holdingMessage: null, 
     dialog: 'none',
     chatToEdit: null,
     agentToDelete: null,
@@ -52,7 +54,7 @@ const initialState: AppState = {
 };
 
 type AppAction =
-    | { type: 'START_LOADING'; }
+    | { type: 'SET_STATUS'; payload: AppState['status'] }
     | { type: 'SET_ERROR'; payload: string }
     | { type: 'INITIAL_LOAD_SUCCESS'; payload: { teams: Team[], designSessions: DesignSession[] } }
     | { type: 'SET_ACTIVE_TEAM_FOR_CHAT'; payload: Team }
@@ -61,7 +63,9 @@ type AppAction =
     | { type: 'SWITCH_MODE'; payload: 'chat' | 'team' }
     | { type: 'START_NEW_CHAT'; }
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
-    | { type: 'CHAT_RESPONSE_SUCCESS'; payload: { messages: any[]; chatId?: string | null; chatHistory?: ChatHistoryItem[] } }
+    | { type: 'SET_CHAT_STATE'; payload: { messages: any[]; chatId: string | null; chatHistory?: ChatHistoryItem[] } }
+    | { type: 'START_TASK'; payload: { holdingMessage: string; chatId: string } }
+    | { type: 'TASK_COMPLETE'; payload: { messages: any[]; } }
     | { type: 'START_TEAM_BUILDER'; }
     | { type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION'; payload: { userMessage: any } }
     | { type: 'UPDATE_DESIGN_SESSION_SUCCESS'; payload: DesignSession }
@@ -78,38 +82,37 @@ type AppAction =
 
 function appReducer(state: AppState, action: AppAction): AppState {
     switch (action.type) {
-        case 'START_LOADING': return { ...state, status: 'loading', error: null };
-        case 'SET_ERROR': return { ...state, status: 'error', error: action.payload };
+        case 'SET_STATUS': return { ...state, status: action.payload, error: null };
+        case 'SET_ERROR': return { ...state, status: 'error', error: action.payload, holdingMessage: null };
         case 'INITIAL_LOAD_SUCCESS':
             return { ...state, teams: action.payload.teams, designSessions: action.payload.designSessions, activeTeam: state.view !== 'team_management' ? action.payload.teams[0] || null : null, status: 'idle' };
         case 'SET_ACTIVE_TEAM_FOR_CHAT':
-            return { ...state, view: 'chat', activeTeam: action.payload, activeDesignSession: null, currentChatId: null, messages: [], chatHistory: [], agents: [], status: 'loading' };
+            return { ...state, view: 'chat', activeTeam: action.payload, activeDesignSession: null, currentChatId: null, messages: [], chatHistory: [], agents: [], status: 'loading', holdingMessage: null };
         case 'SET_ACTIVE_TEAM_FOR_MANAGEMENT':
-            return { ...state, view: 'team_management', activeTeam: action.payload, activeDesignSession: null, agents: [], status: 'loading' };
+            return { ...state, view: 'team_management', activeTeam: action.payload, activeDesignSession: null, agents: [], status: 'loading', holdingMessage: null };
         case 'FETCH_TEAM_DATA_SUCCESS':
             return { ...state, status: 'idle', chatHistory: action.payload.chatHistory, agents: action.payload.agents };
         case 'SWITCH_MODE':
-            if (action.payload === 'team') {
-                return { ...state, view: 'team_management', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
-            }
-            return { ...state, view: 'chat', activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
-        
-        // --- THIS IS THE FIX ---
+            const newView = action.payload === 'team' ? 'team_management' : 'chat';
+            return { ...state, view: newView, activeTeam: state.activeTeam || state.teams[0] || null, activeDesignSession: null };
         case 'START_NEW_CHAT':
-            if (!state.activeTeam) {
-                return { ...state, currentChatId: null, messages: [], view: 'chat' };
-            }
+            if (!state.activeTeam) return { ...state, currentChatId: null, messages: [], view: 'chat', holdingMessage: null };
             const welcomeMessage = {
                 role: 'assistant',
-                content: `Hello! I'm the Project Manager for the **${state.activeTeam.name}** team. I'm ready to help you with your first mission. What would you like to accomplish?`
+                content: `Hello! I'm the Project Manager for the **${state.activeTeam.name}** team. I'm ready to help you. What would you like to accomplish?`,
+                isWelcome: true, 
             };
-            return { ...state, currentChatId: null, messages: [welcomeMessage], view: 'chat' };
-
-        case 'LOAD_CHAT_SUCCESS': return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
-        case 'CHAT_RESPONSE_SUCCESS':
-            return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId || state.currentChatId, chatHistory: action.payload.chatHistory || state.chatHistory };
+            return { ...state, currentChatId: null, messages: [welcomeMessage], view: 'chat', holdingMessage: null, status: 'idle' };
+        case 'LOAD_CHAT_SUCCESS': 
+            return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat', holdingMessage: null };
+        case 'SET_CHAT_STATE':
+             return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId, chatHistory: action.payload.chatHistory || state.chatHistory, holdingMessage: null };
+        case 'START_TASK':
+             return { ...state, status: 'polling', holdingMessage: action.payload.holdingMessage, currentChatId: action.payload.chatId };
+        case 'TASK_COMPLETE':
+            return { ...state, status: 'idle', holdingMessage: null, messages: action.payload.messages };
         case 'START_TEAM_BUILDER':
-            return { ...state, view: 'team_builder', activeDesignSession: null, activeTeam: null, status: 'idle' };
+            return { ...state, view: 'team_builder', activeDesignSession: null, activeTeam: null, status: 'idle', holdingMessage: null };
         case 'OPTIMISTIC_UPDATE_DESIGN_SESSION':
             const currentMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
             const newActiveSession = {
@@ -160,6 +163,8 @@ export default function HomePage() {
     const [currentInput, setCurrentInput] = useState("");
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
+    const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    
     const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
 
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}) => {
@@ -169,6 +174,9 @@ export default function HomePage() {
                 const errorBody = await response.text();
                 throw new Error(`Request failed: ${response.status} ${errorBody}`);
             }
+            if (response.status === 204 || response.headers.get("content-length") === "0") {
+                return { success: true };
+            }
             return await response.json();
         } catch (error: any) {
             console.error("Fetch error:", error);
@@ -177,9 +185,39 @@ export default function HomePage() {
         }
     }, []);
     
+    const stopPolling = useCallback(() => {
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+        }
+    }, []);
+
+    const pollChat = useCallback(async (chatId: string) => {
+        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
+        if (data && data.messages) {
+            const lastMessageContent = data.messages[data.messages.length - 1]?.content || "";
+            const parsed = parseAssistantResponse(lastMessageContent);
+            if (parsed.action !== 'execute_task') {
+                dispatch({ type: 'TASK_COMPLETE', payload: { messages: data.messages } });
+                const newHistory = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam?.teamId}/chats`);
+                if (newHistory) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
+                stopPolling();
+            }
+        }
+    }, [safeFetch, stopPolling, state.activeTeam?.teamId]);
+
+    useEffect(() => {
+        if (state.status === 'polling' && state.currentChatId) {
+            pollingIntervalRef.current = setInterval(() => pollChat(state.currentChatId!), 3000);
+        }
+        return () => {
+            if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+        };
+    }, [state.status, state.currentChatId, pollChat]);
+
     const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
         if (!teamId) return;
-        dispatch({ type: 'START_LOADING' });
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
         const [chatHistory, agents] = await Promise.all([
             safeFetch(`${backendApiUrl}/teams/${teamId}/chats`),
             safeFetch(`${backendApiUrl}/teams/${teamId}/agents`)
@@ -190,7 +228,7 @@ export default function HomePage() {
     }, [safeFetch]);
     
     const loadInitialData = useCallback(async () => {
-        dispatch({ type: 'START_LOADING' });
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
         const [teams, designSessions] = await Promise.all([
             safeFetch(`${backendApiUrl}/teams`),
             safeFetch(`${backendApiUrl}/team-builder/sessions`)
@@ -204,9 +242,10 @@ export default function HomePage() {
     
     useEffect(() => { 
         if (state.activeTeam && (state.view === 'chat' || state.view === 'team_management')) {
+            stopPolling();
             fetchDependenciesForTeam(state.activeTeam.teamId);
         }
-    }, [state.activeTeam, state.view, fetchDependenciesForTeam]);
+    }, [state.activeTeam, state.view, fetchDependenciesForTeam, stopPolling]);
 
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
@@ -216,65 +255,78 @@ export default function HomePage() {
     };
     
     const handleModeChange = (mode: 'chat' | 'team') => dispatch({ type: 'SWITCH_MODE', payload: mode });
-    const handleNewChat = () => dispatch({ type: 'START_NEW_CHAT' });
+    const handleNewChat = () => {
+        stopPolling();
+        dispatch({ type: 'START_NEW_CHAT' });
+    }
     
     const handleLoadChat = useCallback(async (chatId: string) => {
-        dispatch({ type: 'START_LOADING' });
+        stopPolling();
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
         const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (data && data.messages) dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: data.messages } });
-    }, [safeFetch]);
+    }, [safeFetch, stopPolling]);
     
-    const handleSubmitChat = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSendMessage = async (isMission: boolean) => {
         const userInput = currentInput.trim();
         if (!userInput || !state.activeTeam) return;
+
         const userMessage = { role: 'user', content: userInput };
-        const newMessages = [...state.messages, userMessage];
-        dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: newMessages, chatId: state.currentChatId, chatHistory: state.chatHistory } });
-        dispatch({ type: 'START_LOADING' });
         setCurrentInput("");
-        const body = JSON.stringify({ message: userInput, chatId: state.currentChatId });
-        const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body });
-        if (data) {
-            const needsHistoryRefresh = !state.currentChatId;
-            const chatHistory = needsHistoryRefresh ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : state.chatHistory;
-            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: data.messages, chatId: data.chatId, chatHistory: chatHistory || state.chatHistory } });
+        
+        const isNewChat = !state.currentChatId;
+        const welcomeMessage = isNewChat ? state.messages.find(m => m.isWelcome) : null;
+        const optimisticMessages = [...state.messages, userMessage];
+
+        dispatch({ type: 'SET_CHAT_STATE', payload: { messages: optimisticMessages, chatId: state.currentChatId } });
+        
+        let chatId = state.currentChatId;
+
+        if (isNewChat) {
+            dispatch({ type: 'SET_STATUS', payload: 'loading' });
+            const newChatData = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
+                method: 'POST', body: JSON.stringify({ message: userInput, isNewChat: true }) 
+            });
+
+            if (newChatData && newChatData.chatId) {
+                chatId = newChatData.chatId;
+                const newHistory = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
+                dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory || [] });
+            } else {
+                dispatch({ type: 'SET_ERROR', payload: "Failed to create a new chat."});
+                return;
+            }
         }
-    };
-    
-    const handleChatAction = async (actionId: string) => {
-        const lastUserMessage = [...state.messages].reverse().find(m => m.role === 'user');
-        if (!lastUserMessage) return;
-        const messagesWithoutAction = state.messages.filter(m => {
-            try {
-                const content = JSON.parse(m.content);
-                return !(content.text && content.actions);
-            } catch { return true; }
+        
+        if (!chatId) {
+            dispatch({ type: 'SET_ERROR', payload: "Could not obtain a valid Chat ID." });
+            return;
+        }
+
+        const endpoint = isMission 
+            ? `${backendApiUrl}/chats/${chatId}/run-mission` 
+            : `${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`;
+        
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
+        const response = await safeFetch(endpoint, { 
+            method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
         });
 
-        if (actionId === 'confirm_redirect') {
-            dispatch({ type: 'START_LOADING' });
-            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: messagesWithoutAction } });
-            const redirectBody = JSON.stringify({ messages: [], initial_user_idea: lastUserMessage.content });
-            const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
-            if (updatedSession) dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
-        } else if (actionId === 'cancel_redirect') {
-            const finalMessages = [...messagesWithoutAction, { role: 'assistant', content: "Okay, let's stay here. What else can I help you with?" }];
-            dispatch({ type: 'CHAT_RESPONSE_SUCCESS', payload: { messages: finalMessages } });
-        }
-    };
-
-    const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
-    const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
-    
-    const handleUpdateMission = async (mission: string) => {
-        if (!state.activeTeam || mission === state.activeTeam.mission) return;
-        dispatch({ type: 'START_LOADING' });
-        const body = JSON.stringify({ mission: mission });
-        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
-        if (response && response.success) {
-            const updatedTeam = { ...state.activeTeam, mission: mission };
-            dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
+        if (response) {
+            if (isMission) {
+                if (response.messages) {
+                    const lastMessageContent = response.messages[response.messages.length - 1]?.content || "";
+                    const parsed = parseAssistantResponse(lastMessageContent);
+                    if (parsed.action === 'execute_task' && parsed.holding_message) {
+                        dispatch({ type: 'START_TASK', payload: { holdingMessage: parsed.holding_message, chatId }});
+                    }
+                }
+            } else {
+                if (response.messages) {
+                    const finalMessages = welcomeMessage ? [welcomeMessage, ...response.messages] : response.messages;
+                    dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.chatId || chatId }});
+                }
+            }
         }
     };
     
@@ -291,14 +343,11 @@ export default function HomePage() {
         const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
         
         if (updatedSession) {
-            const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
-            const content = lastMessage?.content?.trim() || '';
-            
-            const match = content.match(/```json\s*([\s\S]*?)\s*```/);
-            
-            if (match && match[1]) {
-                try {
-                    const parsedJson = JSON.parse(match[1]);
+            const lastMessageContent = updatedSession.messages[updatedSession.messages.length - 1]?.content || '';
+            const jsonMatch = lastMessageContent.match(/```json\s*([\s\S]*?)\s*```/);
+            if (jsonMatch && jsonMatch[1]) {
+                 try {
+                    const parsedJson = JSON.parse(jsonMatch[1]);
                     if (parsedJson.team_name && Array.isArray(parsedJson.agents)) {
                         dispatch({ type: 'ADD_CREATION_MESSAGE', payload: { designSessionId: updatedSession.designSessionId } });
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
@@ -322,14 +371,45 @@ export default function HomePage() {
                             dispatch({ type: 'SET_ERROR', payload: `Failed to create team: ${newTeamResponse?.error || 'Unknown error'}`});
                         }
                     } else {
-                         dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+                        dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                     }
                 } catch (e) {
                     dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
                 }
             } else {
-                dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+                 dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
             }
+        }
+    };
+    
+    const handleChatAction = async (actionId: string) => {
+        const lastUserMessage = [...state.messages].reverse().find(m => m.role === 'user');
+        if (!lastUserMessage) return;
+        const messagesWithoutAction = state.messages.filter(m => !parseAssistantResponse(m.content).actions);
+
+        if (actionId === 'confirm_redirect') {
+            dispatch({ type: 'SET_STATUS', payload: 'loading' });
+            dispatch({ type: 'SET_CHAT_STATE', payload: { messages: messagesWithoutAction, chatId: state.currentChatId } });
+            const redirectBody = JSON.stringify({ messages: [], initial_user_idea: lastUserMessage.content });
+            const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
+            if (updatedSession) dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+        } else if (actionId === 'cancel_redirect') {
+            const finalMessages = [...messagesWithoutAction, { role: 'assistant', content: "Okay, let's stay here. What else can I help you with?" }];
+            dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: state.currentChatId } });
+        }
+    };
+
+    const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
+    const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
+    
+    const handleUpdateMission = async (mission: string) => {
+        if (!state.activeTeam || mission === state.activeTeam.mission) return;
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
+        const body = JSON.stringify({ mission: mission });
+        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
+        if (response && response.success) {
+            const updatedTeam = { ...state.activeTeam, mission: mission };
+            dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
         }
     };
     
@@ -362,7 +442,7 @@ export default function HomePage() {
         if (data && data.success) {
             const newHistory = state.chatHistory.filter(c => c.chatId !== chatId);
             dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
-            if (state.currentChatId === chatId) dispatch({ type: 'START_NEW_CHAT' });
+            if (state.currentChatId === chatId) handleNewChat();
             handleDialogClose();
         }
     };
@@ -374,6 +454,7 @@ export default function HomePage() {
     
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
         if (!state.activeTeam) return;
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
         const isCreating = !agentToEdit?.agentId;
         const url = isCreating ? `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents` : `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentToEdit.agentId}`;
         const method = isCreating ? 'POST' : 'PUT';
@@ -383,6 +464,7 @@ export default function HomePage() {
             if (updatedAgents) dispatch({ type: 'UPDATE_AGENTS', payload: updatedAgents });
             handleEditAgentClick(null);
         }
+         dispatch({ type: 'SET_STATUS', payload: 'idle' });
     };
     
     const handleDeleteAgent = (agent: Agent) => dispatch({ type: 'OPEN_DIALOG', payload: { dialog: 'delete_agent', agent } });
@@ -416,17 +498,12 @@ export default function HomePage() {
     const handleRenameTeam = async () => {
         if (!dialogInput || !state.teamToEdit) return;
         const { teamId } = state.teamToEdit;
-        // NOTE: This endpoint needs to be created in the backend.
-        // For now, we'll do an optimistic update.
-        // const data = await safeFetch(`${backendApiUrl}/teams/${teamId}/rename`, { method: 'POST', body: JSON.stringify({ new_name: dialogInput }) });
-        // if (data && data.success) {
-            const newTeams = state.teams.map(t => t.teamId === teamId ? { ...t, name: dialogInput } : t);
-            dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
-            if (state.activeTeam?.teamId === teamId) {
-                dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: { ...state.activeTeam, name: dialogInput } });
-            }
-            handleDialogClose();
-        // }
+        const newTeams = state.teams.map(t => t.teamId === teamId ? { ...t, name: dialogInput } : t);
+        dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
+        if (state.activeTeam?.teamId === teamId) {
+            dispatch({ type: 'SET_ACTIVE_TEAM_FOR_MANAGEMENT', payload: { ...state.activeTeam, name: dialogInput } });
+        }
+        handleDialogClose();
     };
     
     const handleConfirmDeleteTeam = async () => {
@@ -445,36 +522,49 @@ export default function HomePage() {
 
     const renderMainContent = () => {
         if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
-        if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession) return <div className="p-8">Loading...</div>;
+        if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession && state.view !== 'chat') return <div className="p-8">Loading...</div>;
+
+        const isLoading = state.status === 'loading';
 
         switch (state.view) {
             case 'welcome': return <WelcomeScreen />;
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen />;
-                return <ChatView messages={state.messages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitChat} onAction={handleChatAction} />;
+                return <ChatView 
+                    messages={state.messages} 
+                    currentInput={currentInput} 
+                    setCurrentInput={setCurrentInput} 
+                    isLoading={isLoading || state.status === 'polling'}
+                    holdingMessage={state.holdingMessage} 
+                    handleSendMessage={handleSendMessage} 
+                    onAction={handleChatAction} 
+                />;
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
                 return <TeamManagementView 
                     team={state.activeTeam} 
                     agents={state.agents} 
-                    isLoading={state.status === 'loading'} 
+                    isLoading={isLoading}
                     onCreateAgent={() => handleEditAgentClick({ agentId: '', name: '', system_prompt: '' })} 
                     onEditAgent={handleEditAgentClick}
                     onUpdateMission={handleUpdateMission}
-                    onRenameTeam={() => {
-                        if (state.activeTeam) {
-                            handleDialogOpen('rename_team', { team: state.activeTeam })
-                        }
-                    }}
-                    onDeleteTeam={() => {
-                        if (state.activeTeam) {
-                            handleDialogOpen('delete_team', { team: state.activeTeam })
-                        }
-                    }}
+                    onRenameTeam={() => { if (state.activeTeam) handleDialogOpen('rename_team', { team: state.activeTeam })}}
+                    onDeleteTeam={() => { if (state.activeTeam) handleDialogOpen('delete_team', { team: state.activeTeam })}}
                 />;
             case 'team_builder':
                 const builderMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
-                return <ChatView messages={builderMessages} currentInput={currentInput} setCurrentInput={setCurrentInput} isLoading={state.status === 'loading'} handleSubmit={handleSubmitTeamBuilder} onAction={() => {}} />;
+                 return <ChatView 
+                    messages={builderMessages} 
+                    currentInput={currentInput} 
+                    setCurrentInput={setCurrentInput} 
+                    isLoading={state.status === 'loading'} 
+                    holdingMessage={null}
+                    handleSendMessage={(isMission) => {
+                        const event = new Event('submit', { cancelable: true, bubbles: true });
+                        handleSubmitTeamBuilder(event as unknown as React.FormEvent);
+                    }} 
+                    onAction={handleChatAction} 
+                />;
             default: return <WelcomeScreen />;
         }
     };
