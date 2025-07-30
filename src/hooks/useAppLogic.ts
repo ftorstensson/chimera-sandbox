@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// This hook centralizes all application state and logic.
+// v61.1 - Mission Success: Definitive fix for the mission workflow race condition.
 
 "use client";
 
@@ -162,7 +162,7 @@ export const useAppLogic = () => {
                 const errorBody = await response.text();
                 throw new Error(`Request failed: ${response.status} ${errorBody}`);
             }
-            if (response.status === 204 || response.headers.get("content-length") === "0") {
+            if (response.status === 204 || response.headers.get("content-length") === "0" || response.status === 202) {
                 return { success: true };
             }
             return await response.json();
@@ -268,11 +268,9 @@ export const useAppLogic = () => {
         let chatId = state.currentChatId;
 
         if (isNewChat) {
-            dispatch({ type: 'SET_STATUS', payload: 'loading' });
             const newChatData = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
                 method: 'POST', body: JSON.stringify({ message: userInput, isNewChat: true }) 
             });
-
             if (newChatData && newChatData.chatId) {
                 chatId = newChatData.chatId;
                 const newHistory = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
@@ -288,29 +286,19 @@ export const useAppLogic = () => {
             return;
         }
 
-        const endpoint = isMission 
-            ? `${backendApiUrl}/chats/${chatId}/run-mission` 
-            : `${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`;
-        
-        dispatch({ type: 'SET_STATUS', payload: 'loading' });
-        const response = await safeFetch(endpoint, { 
-            method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
-        });
-
-        if (response) {
-            if (isMission) {
-                if (response.messages) {
-                    const lastMessageContent = response.messages[response.messages.length - 1]?.content || "";
-                    const parsed = parseAssistantResponse(lastMessageContent);
-                    if (parsed.action === 'execute_task' && parsed.holding_message) {
-                        dispatch({ type: 'START_TASK', payload: { holdingMessage: parsed.holding_message, chatId }});
-                    }
-                }
-            } else {
-                if (response.messages) {
-                    const finalMessages = welcomeMessage ? [welcomeMessage, ...response.messages] : response.messages;
-                    dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.chatId || chatId }});
-                }
+        if (isMission) {
+            safeFetch(`${backendApiUrl}/chats/${chatId}/run-mission`, { 
+                method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
+            });
+            dispatch({ type: 'START_TASK', payload: { holdingMessage: "Okay, I'll get the team started on that right away...", chatId }});
+        } else {
+            dispatch({ type: 'SET_STATUS', payload: 'loading' });
+            const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
+                method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
+            });
+            if (response && response.messages) {
+                const finalMessages = welcomeMessage ? [welcomeMessage, ...response.messages] : response.messages;
+                dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.chatId || chatId }});
             }
         }
     };
