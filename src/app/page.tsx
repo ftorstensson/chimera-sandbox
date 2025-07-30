@@ -70,7 +70,7 @@ export default function HomePage() {
     }
     
     const onSaveAgent = async (agentData: { name: string, system_prompt: string }) => {
-        handleSaveAgent(agentData, agentToEdit?.agentId);
+        await handleSaveAgent(agentData, agentToEdit?.agentId);
         setAgentToEdit(null);
     }
     
