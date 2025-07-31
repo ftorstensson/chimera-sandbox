@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// v61.1 - Mission Success: Definitive fix for the mission workflow race condition.
+// v64.1 - Fixes "stuck thinking dots" and welcome message bugs.
 
 "use client";
 
@@ -60,7 +60,7 @@ type AppAction =
     | { type: 'START_NEW_CHAT'; }
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
     | { type: 'SET_CHAT_STATE'; payload: { messages: any[]; chatId: string | null; chatHistory?: ChatHistoryItem[] } }
-    | { type: 'START_TASK'; payload: { holdingMessage: string; chatId: string } }
+    | { type: 'START_TASK'; payload: { chatId: string, messages: any[] } }
     | { type: 'TASK_COMPLETE'; payload: { messages: any[]; } }
     | { type: 'START_TEAM_BUILDER'; }
     | { type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION'; payload: { userMessage: any } }
@@ -98,15 +98,19 @@ function appReducer(state: AppState, action: AppAction): AppState {
             const welcomeMessage = {
                 role: 'assistant',
                 content: `Hello! I'm the Project Manager for the **${state.activeTeam.name}** team. I'm ready to help you. What would you like to accomplish?`,
-                isWelcome: true, 
             };
             return { ...state, currentChatId: null, messages: [welcomeMessage], view: 'chat', holdingMessage: null, status: 'idle' };
-        case 'LOAD_CHAT_SUCCESS': 
+        case 'LOAD_CHAT_SUCCESS':
+            const lastMessage = action.payload.messages[action.payload.messages.length - 1];
+            const parsed = parseAssistantResponse(lastMessage?.content);
+            if (parsed.action === 'execute_task') {
+                return { ...state, status: 'polling', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat' };
+            }
             return { ...state, status: 'idle', currentChatId: action.payload.chatId, messages: action.payload.messages, view: 'chat', holdingMessage: null };
         case 'SET_CHAT_STATE':
-             return { ...state, status: 'idle', messages: action.payload.messages, currentChatId: action.payload.chatId, chatHistory: action.payload.chatHistory || state.chatHistory, holdingMessage: null };
+             return { ...state, messages: action.payload.messages, currentChatId: action.payload.chatId, chatHistory: action.payload.chatHistory || state.chatHistory };
         case 'START_TASK':
-             return { ...state, status: 'polling', holdingMessage: action.payload.holdingMessage, currentChatId: action.payload.chatId };
+             return { ...state, status: 'polling', messages: action.payload.messages, currentChatId: action.payload.chatId };
         case 'TASK_COMPLETE':
             return { ...state, status: 'idle', holdingMessage: null, messages: action.payload.messages };
         case 'START_TEAM_BUILDER':
@@ -158,14 +162,12 @@ export const useAppLogic = () => {
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}) => {
         try {
             const response = await fetch(url, { ...options, headers: { ...options.headers, 'Content-Type': 'application/json' }});
-            if (!response.ok) {
+            if (!response.ok && response.status !== 202) {
                 const errorBody = await response.text();
                 throw new Error(`Request failed: ${response.status} ${errorBody}`);
             }
-            if (response.status === 204 || response.headers.get("content-length") === "0" || response.status === 202) {
-                return { success: true };
-            }
-            return await response.json();
+            const body = response.status === 204 ? null : await response.json();
+            return { success: true, status: response.status, body: body };
         } catch (error: any) {
             console.error("Fetch error:", error);
             dispatch({ type: 'SET_ERROR', payload: error.message || 'A network error occurred.' });
@@ -181,14 +183,14 @@ export const useAppLogic = () => {
     }, []);
 
     const pollChat = useCallback(async (chatId: string) => {
-        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
-        if (data && data.messages) {
-            const lastMessageContent = data.messages[data.messages.length - 1]?.content || "";
+        const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
+        if (result?.body?.messages) {
+            const lastMessageContent = result.body.messages[result.body.messages.length - 1]?.content || "";
             const parsed = parseAssistantResponse(lastMessageContent);
             if (parsed.action !== 'execute_task') {
-                dispatch({ type: 'TASK_COMPLETE', payload: { messages: data.messages } });
-                const newHistory = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam?.teamId}/chats`);
-                if (newHistory) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
+                dispatch({ type: 'TASK_COMPLETE', payload: { messages: result.body.messages } });
+                const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam?.teamId}/chats`);
+                if (newHistoryResult?.body) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistoryResult.body });
                 stopPolling();
             }
         }
@@ -196,33 +198,32 @@ export const useAppLogic = () => {
 
     useEffect(() => {
         if (state.status === 'polling' && state.currentChatId) {
+            stopPolling();
             pollingIntervalRef.current = setInterval(() => pollChat(state.currentChatId!), 3000);
         }
-        return () => {
-            if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-        };
-    }, [state.status, state.currentChatId, pollChat]);
+        return () => stopPolling();
+    }, [state.status, state.currentChatId, pollChat, stopPolling]);
 
     const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
         if (!teamId) return;
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
-        const [chatHistory, agents] = await Promise.all([
+        const [chatHistoryResult, agentsResult] = await Promise.all([
             safeFetch(`${backendApiUrl}/teams/${teamId}/chats`),
             safeFetch(`${backendApiUrl}/teams/${teamId}/agents`)
         ]);
-        if (chatHistory !== null && agents !== null) {
-            dispatch({ type: 'FETCH_TEAM_DATA_SUCCESS', payload: { chatHistory, agents } });
+        if (chatHistoryResult?.body && agentsResult?.body) {
+            dispatch({ type: 'FETCH_TEAM_DATA_SUCCESS', payload: { chatHistory: chatHistoryResult.body, agents: agentsResult.body } });
         }
     }, [safeFetch]);
     
     const loadInitialData = useCallback(async () => {
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
-        const [teams, designSessions] = await Promise.all([
+        const [teamsResult, designSessionsResult] = await Promise.all([
             safeFetch(`${backendApiUrl}/teams`),
             safeFetch(`${backendApiUrl}/team-builder/sessions`)
         ]);
-        if (teams !== null && designSessions !== null) {
-            dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams, designSessions } });
+        if (teamsResult?.body && designSessionsResult?.body) {
+            dispatch({ type: 'INITIAL_LOAD_SUCCESS', payload: { teams: teamsResult.body, designSessions: designSessionsResult.body } });
         }
     }, [safeFetch]);
 
@@ -251,58 +252,68 @@ export const useAppLogic = () => {
     const handleLoadChat = useCallback(async (chatId: string) => {
         stopPolling();
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
-        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
-        if (data && data.messages) dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: data.messages } });
+        const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
+        if (result?.body?.messages) {
+            dispatch({ type: 'LOAD_CHAT_SUCCESS', payload: { chatId, messages: result.body.messages } });
+        }
     }, [safeFetch, stopPolling]);
     
-    const handleSendMessage = async (userInput: string, isMission: boolean) => {
+    const handleSendMessage = async (userInput: string) => {
         if (!userInput || !state.activeTeam) return;
 
-        const userMessage = { role: 'user', content: userInput };
         const isNewChat = !state.currentChatId;
-        const welcomeMessage = isNewChat ? state.messages.find(m => m.isWelcome) : null;
-        const optimisticMessages = [...state.messages, userMessage];
-
+        const welcomeMessage = isNewChat ? state.messages[0] : null;
+        
+        const optimisticMessages = [...state.messages, { role: 'user', content: userInput }];
         dispatch({ type: 'SET_CHAT_STATE', payload: { messages: optimisticMessages, chatId: state.currentChatId } });
         
-        let chatId = state.currentChatId;
+        dispatch({ type: 'SET_STATUS', payload: 'loading' });
 
-        if (isNewChat) {
-            const newChatData = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
-                method: 'POST', body: JSON.stringify({ message: userInput, isNewChat: true }) 
-            });
-            if (newChatData && newChatData.chatId) {
-                chatId = newChatData.chatId;
-                const newHistory = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
-                dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory || [] });
-            } else {
-                dispatch({ type: 'SET_ERROR', payload: "Failed to create a new chat."});
-                return;
-            }
-        }
-        
-        if (!chatId) {
-            dispatch({ type: 'SET_ERROR', payload: "Could not obtain a valid Chat ID." });
+        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
+            method: 'POST', 
+            body: JSON.stringify({ 
+                message: userInput, 
+                chatId: state.currentChatId,
+                isNewChat: isNewChat 
+            }) 
+        });
+
+        if (!response) {
+            dispatch({ type: 'SET_STATUS', payload: 'idle' });
             return;
         }
 
-        if (isMission) {
-            safeFetch(`${backendApiUrl}/chats/${chatId}/run-mission`, { 
-                method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
-            });
-            dispatch({ type: 'START_TASK', payload: { holdingMessage: "Okay, I'll get the team started on that right away...", chatId }});
-        } else {
-            dispatch({ type: 'SET_STATUS', payload: 'loading' });
-            const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
-                method: 'POST', body: JSON.stringify({ message: userInput, chatId: chatId }) 
-            });
-            if (response && response.messages) {
-                const finalMessages = welcomeMessage ? [welcomeMessage, ...response.messages] : response.messages;
-                dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.chatId || chatId }});
+        if (response.status === 202) {
+            const chatId = response.body?.chatId;
+            const chatResult = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
+            if (chatId && chatResult?.body?.messages) {
+                dispatch({ type: 'START_TASK', payload: { chatId: chatId, messages: chatResult.body.messages }});
+                if (isNewChat) {
+                    const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
+                    if (newHistoryResult?.body) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistoryResult.body });
+                }
+            } else {
+                dispatch({ type: 'SET_ERROR', payload: "Failed to get chat state after starting task." });
             }
+        } else if (response.status === 200 && response.body?.messages) {
+            const finalMessages = (isNewChat && welcomeMessage)
+                ? [welcomeMessage, ...response.body.messages]
+                : response.body.messages;
+
+            dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.body.chatId }});
+            dispatch({ type: 'SET_STATUS', payload: 'idle' });
+            
+            if (isNewChat) {
+                const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
+                if (newHistoryResult?.body) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistoryResult.body });
+            }
+        } else {
+            dispatch({ type: 'SET_STATUS', payload: 'idle' });
         }
     };
     
+    // ... (The rest of the file remains the same)
+
     const handleSubmitTeamBuilder = async (userInput: string) => {
         if (!userInput) return;
         const userMessage = { role: 'user', content: userInput };
@@ -310,9 +321,10 @@ export const useAppLogic = () => {
         const messagesForApi = [...(state.activeDesignSession?.messages || []), userMessage];
         const designSessionId = state.activeDesignSession?.designSessionId;
         const body = JSON.stringify({ messages: messagesForApi, designSessionId });
-        const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
+        const result = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body });
         
-        if (updatedSession) {
+        if (result && result.body) {
+            const updatedSession = result.body;
             const lastMessageContent = updatedSession.messages[updatedSession.messages.length - 1]?.content || '';
             const jsonMatch = lastMessageContent.match(/```json\s*([\s\S]*?)\s*```/);
             if (jsonMatch && jsonMatch[1]) {
@@ -323,22 +335,19 @@ export const useAppLogic = () => {
                         const createBody = JSON.stringify({ ...parsedJson, designSessionId: updatedSession.designSessionId });
                         const newTeamResponse = await safeFetch(`${backendApiUrl}/team-builder/create`, { method: 'POST', body: createBody });
                         
-                        if (newTeamResponse && newTeamResponse.teamId) {
+                        if (newTeamResponse && newTeamResponse.body.teamId) {
                             const [latestTeams, latestDesignSessions] = await Promise.all([
                                 safeFetch(`${backendApiUrl}/teams`),
                                 safeFetch(`${backendApiUrl}/team-builder/sessions`)
                             ]);
-                            if (latestTeams !== null && latestDesignSessions !== null) {
-                                const newTeam = latestTeams.find((t: Team) => t.teamId === newTeamResponse.teamId);
+                            if (latestTeams?.body && latestDesignSessions?.body) {
+                                const newTeam = latestTeams.body.find((t: Team) => t.teamId === newTeamResponse.body.teamId);
                                 if (newTeam) {
-                                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam, teams: latestTeams, designSessions: latestDesignSessions } });
-                                } else {
-                                    dispatch({ type: 'SET_ERROR', payload: `Could not find newly created team in the list.`});
+                                    dispatch({ type: 'FINISH_TEAM_BUILDER', payload: { newTeam, teams: latestTeams.body, designSessions: latestDesignSessions.body } });
                                 }
                             }
                         } else {
-                            dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
-                            dispatch({ type: 'SET_ERROR', payload: `Failed to create team: ${newTeamResponse?.error || 'Unknown error'}`});
+                            dispatch({ type: 'SET_ERROR', payload: `Failed to create team: ${newTeamResponse?.body?.error || 'Unknown error'}`});
                         }
                     } else {
                         dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
@@ -361,8 +370,8 @@ export const useAppLogic = () => {
             dispatch({ type: 'SET_STATUS', payload: 'loading' });
             dispatch({ type: 'SET_CHAT_STATE', payload: { messages: messagesWithoutAction, chatId: state.currentChatId } });
             const redirectBody = JSON.stringify({ messages: [], initial_user_idea: lastUserMessage.content });
-            const updatedSession = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
-            if (updatedSession) dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: updatedSession });
+            const result = await safeFetch(`${backendApiUrl}/team-builder/chat`, { method: 'POST', body: redirectBody });
+            if (result && result.body) dispatch({ type: 'UPDATE_DESIGN_SESSION_SUCCESS', payload: result.body });
         } else if (actionId === 'cancel_redirect') {
             const finalMessages = [...messagesWithoutAction, { role: 'assistant', content: "Okay, let's stay here. What else can I help you with?" }];
             dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: state.currentChatId } });
@@ -376,8 +385,8 @@ export const useAppLogic = () => {
         if (!state.activeTeam || mission === state.activeTeam.mission) return;
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
         const body = JSON.stringify({ mission: mission });
-        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
-        if (response && response.success) {
+        const result = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}`, { method: 'PUT', body });
+        if (result && result.success) {
             const updatedTeam = { ...state.activeTeam, mission: mission };
             dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
         }
@@ -392,8 +401,8 @@ export const useAppLogic = () => {
     const handleRenameChat = async (newTitle: string) => {
         if (!newTitle || !state.chatToEdit) return;
         const { chatId } = state.chatToEdit;
-        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}/rename`, { method: 'POST', body: JSON.stringify({ new_title: newTitle }) });
-        if (data && data.success) {
+        const result = await safeFetch(`${backendApiUrl}/chats/${chatId}/rename`, { method: 'POST', body: JSON.stringify({ new_title: newTitle }) });
+        if (result && result.success) {
             const newHistory = state.chatHistory.map(c => c.chatId === chatId ? { ...c, title: newTitle } : c);
             dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
             handleDialogClose();
@@ -403,8 +412,8 @@ export const useAppLogic = () => {
     const handleDeleteChat = async () => {
         if (!state.chatToEdit || !state.activeTeam) return;
         const { chatId } = state.chatToEdit;
-        const data = await safeFetch(`${backendApiUrl}/chats/${chatId}`, { method: 'DELETE' });
-        if (data && data.success) {
+        const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`, { method: 'DELETE' });
+        if (result && result.success) {
             const newHistory = state.chatHistory.filter(c => c.chatId !== chatId);
             dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistory });
             if (state.currentChatId === chatId) handleNewChat();
@@ -418,10 +427,10 @@ export const useAppLogic = () => {
         const isCreating = !agentId;
         const url = isCreating ? `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents` : `${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`;
         const method = isCreating ? 'POST' : 'PUT';
-        const data = await safeFetch(url, { method, body: JSON.stringify(agentData) });
-        if (data && data.success) {
-            const updatedAgents = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents`);
-            if (updatedAgents) dispatch({ type: 'UPDATE_AGENTS', payload: updatedAgents });
+        const result = await safeFetch(url, { method, body: JSON.stringify(agentData) });
+        if (result && result.success) {
+            const updatedAgentsResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents`);
+            if (updatedAgentsResult && updatedAgentsResult.body) dispatch({ type: 'UPDATE_AGENTS', payload: updatedAgentsResult.body });
         }
          dispatch({ type: 'SET_STATUS', payload: 'idle' });
     };
@@ -429,8 +438,8 @@ export const useAppLogic = () => {
     const handleConfirmDeleteAgent = async () => {
         if (!state.activeTeam || !state.agentToDelete) return;
         const { agentId } = state.agentToDelete;
-        const data = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`, { method: 'DELETE' });
-        if (data && data.success) {
+        const result = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/agents/${agentId}`, { method: 'DELETE' });
+        if (result && result.success) {
              const updatedAgents = state.agents.filter(a => a.agentId !== agentId);
              dispatch({ type: 'UPDATE_AGENTS', payload: updatedAgents });
              handleDialogClose();
@@ -440,8 +449,8 @@ export const useAppLogic = () => {
     const handleConfirmDeleteDesignSession = async () => {
         if (!state.designSessionToDelete) return;
         const { designSessionId } = state.designSessionToDelete;
-        const data = await safeFetch(`${backendApiUrl}/team-builder/sessions/${designSessionId}`, { method: 'DELETE' });
-        if (data && data.success) {
+        const result = await safeFetch(`${backendApiUrl}/team-builder/sessions/${designSessionId}`, { method: 'DELETE' });
+        if (result && result.success) {
             const updatedSessions = state.designSessions.filter((s: DesignSession) => s.designSessionId !== designSessionId);
             dispatch({ type: 'UPDATE_DESIGN_SESSIONS', payload: updatedSessions });
             if (state.activeDesignSession?.designSessionId === designSessionId) dispatch({ type: 'SWITCH_MODE', payload: 'team' });
@@ -464,8 +473,8 @@ export const useAppLogic = () => {
     const handleConfirmDeleteTeam = async () => {
         if (!state.teamToEdit) return;
         const { teamId } = state.teamToEdit;
-        const data = await safeFetch(`${backendApiUrl}/teams/${teamId}`, { method: 'DELETE' });
-        if (data && data.success) {
+        const result = await safeFetch(`${backendApiUrl}/teams/${teamId}`, { method: 'DELETE' });
+        if (result && result.success) {
             const newTeams = state.teams.filter(t => t.teamId !== teamId);
             dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
             if (state.activeTeam?.teamId === teamId) {
