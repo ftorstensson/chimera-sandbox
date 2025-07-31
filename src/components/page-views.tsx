@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// v6.6 - Correctly parses and hides the 'execute_task' signal.
+// v7.0 - Refactored to use a single "Send" button for the Intelligent Operator.
 
 "use client";
 
@@ -30,7 +30,7 @@ interface ChatViewProps {
     setCurrentInput: (value: string) => void;
     isLoading: boolean;
     holdingMessage: string | null;
-    handleSendMessage: (isMission: boolean) => void;
+    handleSendMessage: () => void; // REFACTORED: Simplified signature
     onAction: (actionId: string) => void;
 }
 export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, holdingMessage, handleSendMessage, onAction }: ChatViewProps) => {
@@ -53,9 +53,6 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                         if (msg.role === 'assistant' && msg.content) {
                             const parsed = parseAssistantResponse(msg.content);
                             
-                            // --- THIS IS THE FIX ---
-                            // If the message is a task signal, we render nothing, because the global
-                            // holdingMessage state will display the "working" indicator.
                             if (parsed.action === 'execute_task') {
                                 return null;
                             }
@@ -68,7 +65,6 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
                                 return <ActionMessage key={index} {...messageProps} />;
                             }
                             
-                            // Otherwise, it's a normal conversational message.
                             return (
                                 <AssistantMessage key={index}>
                                     {parsed.text}
@@ -94,33 +90,32 @@ export const ChatView = ({ messages, currentInput, setCurrentInput, isLoading, h
             </div>
             <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-zinc-800">
                 <div className="w-full max-w-3xl mx-auto">
-                    <div className="flex items-end space-x-2">
-                    <Textarea 
-                        value={currentInput} 
-                        onChange={(e) => setCurrentInput(e.target.value)} 
-                        placeholder="Ask a question or describe a new task..." 
-                        className="flex-grow rounded-lg px-4 py-2 resize-none bg-gray-100 dark:bg-zinc-800" 
-                        rows={1}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                if (!isSendDisabled) {
-                                   handleSendMessage(e.metaKey || e.ctrlKey);
+                    <div className="relative">
+                        <Textarea 
+                            value={currentInput} 
+                            onChange={(e) => setCurrentInput(e.target.value)} 
+                            placeholder="Ask a question or delegate a new task..." 
+                            className="flex-grow rounded-lg px-4 py-2 pr-20 resize-none bg-gray-100 dark:bg-zinc-800" 
+                            rows={1}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    if (!isSendDisabled) {
+                                       handleSendMessage(); // REFACTORED: Simplified call
+                                    }
                                 }
-                            }
-                        }}
-                    />
-                    <div className="flex flex-col space-y-1">
-                        <Button onClick={() => handleSendMessage(false)} className="rounded-lg h-10 w-24 bg-indigo-600 hover:bg-indigo-700 text-white" disabled={isSendDisabled}>
-                           <Send className="h-4 w-4 mr-2"/> Chat
+                            }}
+                        />
+                        <Button 
+                            onClick={() => handleSendMessage()} // REFACTORED: Simplified call
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg h-9 w-16 bg-indigo-600 hover:bg-indigo-700 text-white" 
+                            disabled={isSendDisabled}
+                        >
+                           <Send className="h-4 w-4"/>
                         </Button>
-                        <Button onClick={() => handleSendMessage(true)} className="rounded-lg h-10 w-24 bg-yellow-500 hover:bg-yellow-600 text-white" disabled={isSendDisabled}>
-                            <Zap className="h-4 w-4 mr-2"/> Mission
-                        </Button>
-                    </div>
                     </div>
                      <p className="text-xs text-gray-500 mt-2 text-center">
-                        Use <span className="font-mono bg-gray-200 dark:bg-zinc-700 rounded px-1 py-0.5">Chat</span> for questions and <span className="font-mono bg-gray-200 dark:bg-zinc-700 rounded px-1 py-0.5">Mission</span> (or Cmd/Ctrl+Enter) for complex tasks.
+                        The AI will automatically detect if your message is a simple question or a complex task.
                     </p>
                 </div>
             </div>

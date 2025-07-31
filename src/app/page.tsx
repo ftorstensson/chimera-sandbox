@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v62.0 - Refactored to use the useAppLogic hook.
+// v63.0 - Aligned with the new useAppLogic hook signature.
 
 "use client";
 
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AgentEditDialog } from "@/components/AgentEditDialog";
 import { useAppLogic } from "@/hooks/useAppLogic";
+import { parseAssistantResponse } from "@/lib/utils";
 
 const TeamWelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -48,8 +49,9 @@ export default function HomePage() {
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
 
-    const onSendMessage = (isMission: boolean) => {
-        handleSendMessage(currentInput, isMission);
+    // REFACTORED: This function is now simplified.
+    const onSendMessage = () => {
+        handleSendMessage(currentInput);
         setCurrentInput("");
     };
 
@@ -83,18 +85,26 @@ export default function HomePage() {
         if (state.status === 'loading' && !state.activeTeam && !state.activeDesignSession && state.view !== 'chat') return <div className="p-8">Loading...</div>;
 
         const isLoading = state.status === 'loading' || state.status === 'polling';
+        
+        // This logic correctly displays the holding message when polling
+        const holdingMessage = state.status === 'polling' 
+            ? state.messages.find(m => parseAssistantResponse(m.content)?.action === 'execute_task')?.content
+            : null;
+        
+        const displayMessages = state.messages.filter(m => parseAssistantResponse(m.content)?.action !== 'execute_task');
+
 
         switch (state.view) {
             case 'welcome': return <WelcomeScreen />;
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen />;
                 return <ChatView 
-                    messages={state.messages} 
+                    messages={displayMessages} 
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading}
-                    holdingMessage={state.holdingMessage} 
-                    handleSendMessage={onSendMessage} 
+                    holdingMessage={parseAssistantResponse(holdingMessage)?.holding_message}
+                    handleSendMessage={onSendMessage} // Pass the simplified handler
                     onAction={handleChatAction} 
                 />;
             case 'team_management':
@@ -117,7 +127,7 @@ export default function HomePage() {
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading} 
                     holdingMessage={null}
-                    handleSendMessage={(isMission) => onSubmitTeamBuilder(new Event('submit') as unknown as React.FormEvent<HTMLFormElement>)}
+                    handleSendMessage={() => onSubmitTeamBuilder(new Event('submit') as unknown as React.FormEvent<HTMLFormElement>)}
                     onAction={handleChatAction} 
                 />;
             default: return <WelcomeScreen />;
