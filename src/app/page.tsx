@@ -1,5 +1,5 @@
 // src/app/page.tsx
-// v63.1 - FIX: Correctly parses and displays the holding message from JSON.
+// v63.0 - Aligned with the new useAppLogic hook signature.
 
 "use client";
 
@@ -49,6 +49,7 @@ export default function HomePage() {
     const [dialogInput, setDialogInput] = useState("");
     const [agentToEdit, setAgentToEdit] = useState<Agent | null>(null);
 
+    // REFACTORED: This function is now simplified.
     const onSendMessage = () => {
         handleSendMessage(currentInput);
         setCurrentInput("");
@@ -85,15 +86,11 @@ export default function HomePage() {
 
         const isLoading = state.status === 'loading' || state.status === 'polling';
         
-        // UPDATED LOGIC:
-        // 1. Find the raw message content that represents a task.
-        const rawHoldingMessageContent = state.status === 'polling' 
+        // This logic correctly displays the holding message when polling
+        const holdingMessage = state.status === 'polling' 
             ? state.messages.find(m => parseAssistantResponse(m.content)?.action === 'execute_task')?.content
             : null;
-        // 2. Parse it to extract the user-facing holding message text.
-        const parsedHoldingMessage = parseAssistantResponse(rawHoldingMessageContent)?.holding_message;
         
-        // 3. Ensure we only display conversational messages in the main chat view.
         const displayMessages = state.messages.filter(m => parseAssistantResponse(m.content)?.action !== 'execute_task');
 
 
@@ -106,12 +103,11 @@ export default function HomePage() {
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading}
-                    holdingMessage={parsedHoldingMessage} // Pass the correctly parsed text
-                    handleSendMessage={onSendMessage}
+                    holdingMessage={parseAssistantResponse(holdingMessage)?.holding_message}
+                    handleSendMessage={onSendMessage} // Pass the simplified handler
                     onAction={handleChatAction} 
                 />;
             case 'team_management':
-                // ... (omitted for brevity, no changes)
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
                 return <TeamManagementView 
                     team={state.activeTeam} 
@@ -124,7 +120,6 @@ export default function HomePage() {
                     onDeleteTeam={() => { if (state.activeTeam) handleDialogOpen('delete_team', { team: state.activeTeam })}}
                 />;
             case 'team_builder':
-                // ... (omitted for brevity, no changes)
                 const builderMessages = state.activeDesignSession ? state.activeDesignSession.messages : [];
                  return <ChatView 
                     messages={builderMessages} 
@@ -144,7 +139,6 @@ export default function HomePage() {
     return (
         <>
             <AppLayout
-                // ... (omitted for brevity, no changes)
                 activeMode={activeMode}
                 setActiveMode={handleModeChange}
                 teams={state.teams}
@@ -169,7 +163,6 @@ export default function HomePage() {
                 {renderMainContent()}
             </AppLayout>
 
-            {/* DIALOGS (omitted for brevity, no changes) */}
             <Dialog open={state.dialog === 'rename_chat'} onOpenChange={handleDialogClose}>
                 <DialogContent>
                     <DialogHeader><DialogTitle>Rename Chat</DialogTitle></DialogHeader>
