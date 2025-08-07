@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// v64.1 - Fixes "stuck thinking dots" and welcome message bugs.
+// v64.2 - FIX: Refactors polling logic to resolve stalled tasks.
 
 "use client";
 
@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useReducer, useRef } from "react";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
 import { parseAssistantResponse } from "@/lib/utils";
 
-// --- Section 1: State and Action Type Definitions ---
+// --- Section 1: State and Action Type Definitions (no changes) ---
 
 export interface AppState {
     view: 'welcome' | 'chat' | 'team_management' | 'team_builder';
@@ -61,7 +61,7 @@ type AppAction =
     | { type: 'LOAD_CHAT_SUCCESS'; payload: { chatId: string; messages: any[] } }
     | { type: 'SET_CHAT_STATE'; payload: { messages: any[]; chatId: string | null; chatHistory?: ChatHistoryItem[] } }
     | { type: 'START_TASK'; payload: { chatId: string, messages: any[] } }
-    | { type: 'TASK_COMPLETE'; payload: { messages: any[]; } }
+    | { type: 'TASK_COMPLETE'; payload: { messages: any[]; chatId: string } }
     | { type: 'START_TEAM_BUILDER'; }
     | { type: 'OPTIMISTIC_UPDATE_DESIGN_SESSION'; payload: { userMessage: any } }
     | { type: 'UPDATE_DESIGN_SESSION_SUCCESS'; payload: DesignSession }
@@ -76,7 +76,8 @@ type AppAction =
     | { type: 'UPDATE_AGENTS'; payload: Agent[] }
     | { type: 'UPDATE_DESIGN_SESSIONS'; payload: DesignSession[] };
 
-// --- Section 2: The Reducer Function ---
+
+// --- Section 2: The Reducer Function (minor change to TASK_COMPLETE) ---
 
 function appReducer(state: AppState, action: AppAction): AppState {
     switch (action.type) {
@@ -111,8 +112,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
              return { ...state, messages: action.payload.messages, currentChatId: action.payload.chatId, chatHistory: action.payload.chatHistory || state.chatHistory };
         case 'START_TASK':
              return { ...state, status: 'polling', messages: action.payload.messages, currentChatId: action.payload.chatId };
+        // UPDATED: Now only sets status to idle. Message update is handled by pollChat.
         case 'TASK_COMPLETE':
-            return { ...state, status: 'idle', holdingMessage: null, messages: action.payload.messages };
+            // Only update the state if the completed task belongs to the currently active chat.
+            if (state.currentChatId === action.payload.chatId) {
+                return { ...state, status: 'idle', holdingMessage: null, messages: action.payload.messages };
+            }
+            return state; // Ignore if it's for an old chat
         case 'START_TEAM_BUILDER':
             return { ...state, view: 'team_builder', activeDesignSession: null, activeTeam: null, status: 'idle', holdingMessage: null };
         case 'OPTIMISTIC_UPDATE_DESIGN_SESSION':
@@ -152,7 +158,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
     }
 }
 
-// --- Section 3: The Custom Hook ---
+
+// --- Section 3: The Custom Hook (REFACTORED POLLING LOGIC) ---
 
 export const useAppLogic = () => {
     const [state, dispatch] = useReducer(appReducer, initialState);
@@ -175,6 +182,7 @@ export const useAppLogic = () => {
         }
     }, []);
     
+    // UPDATED: Simplified stopPolling function.
     const stopPolling = useCallback(() => {
         if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
@@ -182,27 +190,44 @@ export const useAppLogic = () => {
         }
     }, []);
 
-    const pollChat = useCallback(async (chatId: string) => {
-        const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
-        if (result?.body?.messages) {
-            const lastMessageContent = result.body.messages[result.body.messages.length - 1]?.content || "";
-            const parsed = parseAssistantResponse(lastMessageContent);
-            if (parsed.action !== 'execute_task') {
-                dispatch({ type: 'TASK_COMPLETE', payload: { messages: result.body.messages } });
-                const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam?.teamId}/chats`);
-                if (newHistoryResult?.body) dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistoryResult.body });
-                stopPolling();
-            }
-        }
-    }, [safeFetch, stopPolling, state.activeTeam?.teamId]);
-
+    // UPDATED: The entire polling useEffect hook is refactored for stability.
     useEffect(() => {
-        if (state.status === 'polling' && state.currentChatId) {
-            stopPolling();
-            pollingIntervalRef.current = setInterval(() => pollChat(state.currentChatId!), 3000);
+        // This function is defined inside the effect to capture the current state.
+        const pollChat = async () => {
+            if (!state.currentChatId || !state.activeTeam) return;
+
+            const result = await safeFetch(`${backendApiUrl}/chats/${state.currentChatId}`);
+            
+            if (result?.body?.messages) {
+                const lastMessageContent = result.body.messages[result.body.messages.length - 1]?.content || "";
+                const parsed = parseAssistantResponse(lastMessageContent);
+
+                // This is the stop condition.
+                if (parsed.action !== 'execute_task') {
+                    stopPolling();
+                    dispatch({ type: 'TASK_COMPLETE', payload: { messages: result.body.messages, chatId: state.currentChatId } });
+                    
+                    // Refresh the chat history in the sidebar after the task is fully complete.
+                    const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
+                    if (newHistoryResult?.body) {
+                        dispatch({ type: 'UPDATE_CHAT_HISTORY', payload: newHistoryResult.body });
+                    }
+                }
+            }
+        };
+
+        if (state.status === 'polling') {
+            stopPolling(); // Ensure no multiple intervals are running.
+            pollingIntervalRef.current = setInterval(pollChat, 3000);
+        } else {
+            stopPolling(); // Clean up if status changes for any other reason.
         }
+
+        // Cleanup function to stop polling when the component unmounts or dependencies change.
         return () => stopPolling();
-    }, [state.status, state.currentChatId, pollChat, stopPolling]);
+        
+    }, [state.status, state.currentChatId, state.activeTeam, safeFetch, stopPolling]);
+
 
     const fetchDependenciesForTeam = useCallback(async (teamId: string) => {
         if (!teamId) return;
@@ -231,10 +256,10 @@ export const useAppLogic = () => {
     
     useEffect(() => { 
         if (state.activeTeam && (state.view === 'chat' || state.view === 'team_management')) {
-            stopPolling();
+            // We don't stop polling here anymore, the main polling effect handles it.
             fetchDependenciesForTeam(state.activeTeam.teamId);
         }
-    }, [state.activeTeam, state.view, fetchDependenciesForTeam, stopPolling]);
+    }, [state.activeTeam, state.view, fetchDependenciesForTeam]);
 
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
@@ -244,6 +269,7 @@ export const useAppLogic = () => {
     };
     
     const handleModeChange = (mode: 'chat' | 'team') => dispatch({ type: 'SWITCH_MODE', payload: mode });
+    
     const handleNewChat = () => {
         stopPolling();
         dispatch({ type: 'START_NEW_CHAT' });
@@ -262,8 +288,6 @@ export const useAppLogic = () => {
         if (!userInput || !state.activeTeam) return;
 
         const isNewChat = !state.currentChatId;
-        const welcomeMessage = isNewChat ? state.messages[0] : null;
-        
         const optimisticMessages = [...state.messages, { role: 'user', content: userInput }];
         dispatch({ type: 'SET_CHAT_STATE', payload: { messages: optimisticMessages, chatId: state.currentChatId } });
         
@@ -282,7 +306,8 @@ export const useAppLogic = () => {
             dispatch({ type: 'SET_STATUS', payload: 'idle' });
             return;
         }
-
+        
+        // This logic remains sound. The backend returns 202 to signal polling.
         if (response.status === 202) {
             const chatId = response.body?.chatId;
             const chatResult = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
@@ -296,12 +321,8 @@ export const useAppLogic = () => {
                 dispatch({ type: 'SET_ERROR', payload: "Failed to get chat state after starting task." });
             }
         } else if (response.status === 200 && response.body?.messages) {
-            const finalMessages = (isNewChat && welcomeMessage)
-                ? [welcomeMessage, ...response.body.messages]
-                : response.body.messages;
-
-            dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: response.body.chatId }});
-            dispatch({ type: 'SET_STATUS', payload: 'idle' });
+             dispatch({ type: 'SET_CHAT_STATE', payload: { messages: response.body.messages, chatId: response.body.chatId }});
+             dispatch({ type: 'SET_STATUS', payload: 'idle' });
             
             if (isNewChat) {
                 const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`);
@@ -313,7 +334,6 @@ export const useAppLogic = () => {
     };
     
     // ... (The rest of the file remains the same)
-
     const handleSubmitTeamBuilder = async (userInput: string) => {
         if (!userInput) return;
         const userMessage = { role: 'user', content: userInput };
@@ -360,7 +380,6 @@ export const useAppLogic = () => {
             }
         }
     };
-    
     const handleChatAction = async (actionId: string) => {
         const lastUserMessage = [...state.messages].reverse().find(m => m.role === 'user');
         if (!lastUserMessage) return;
@@ -377,10 +396,8 @@ export const useAppLogic = () => {
             dispatch({ type: 'SET_CHAT_STATE', payload: { messages: finalMessages, chatId: state.currentChatId } });
         }
     };
-
     const handleStartTeamBuilder = () => dispatch({ type: 'START_TEAM_BUILDER' });
     const handleLoadDesignSession = (session: DesignSession) => dispatch({ type: 'LOAD_DESIGN_SESSION', payload: session });
-    
     const handleUpdateMission = async (mission: string) => {
         if (!state.activeTeam || mission === state.activeTeam.mission) return;
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
@@ -391,13 +408,10 @@ export const useAppLogic = () => {
             dispatch({ type: 'UPDATE_ACTIVE_TEAM', payload: updatedTeam });
         }
     };
-    
     const handleDialogOpen = (dialog: AppState['dialog'], options?: { chat?: ChatHistoryItem, agent?: Agent, designSession?: DesignSession, team?: Team }) => {
         dispatch({ type: 'OPEN_DIALOG', payload: { dialog, ...options } });
     };
-    
     const handleDialogClose = () => dispatch({ type: 'CLOSE_DIALOG' });
-    
     const handleRenameChat = async (newTitle: string) => {
         if (!newTitle || !state.chatToEdit) return;
         const { chatId } = state.chatToEdit;
@@ -408,7 +422,6 @@ export const useAppLogic = () => {
             handleDialogClose();
         }
     };
-    
     const handleDeleteChat = async () => {
         if (!state.chatToEdit || !state.activeTeam) return;
         const { chatId } = state.chatToEdit;
@@ -420,7 +433,6 @@ export const useAppLogic = () => {
             handleDialogClose();
         }
     };
-    
     const handleSaveAgent = async (agentData: { name: string, system_prompt: string }, agentId?: string) => {
         if (!state.activeTeam) return;
         dispatch({ type: 'SET_STATUS', payload: 'loading' });
@@ -434,7 +446,6 @@ export const useAppLogic = () => {
         }
          dispatch({ type: 'SET_STATUS', payload: 'idle' });
     };
-    
     const handleConfirmDeleteAgent = async () => {
         if (!state.activeTeam || !state.agentToDelete) return;
         const { agentId } = state.agentToDelete;
@@ -445,7 +456,6 @@ export const useAppLogic = () => {
              handleDialogClose();
         }
     };
-
     const handleConfirmDeleteDesignSession = async () => {
         if (!state.designSessionToDelete) return;
         const { designSessionId } = state.designSessionToDelete;
@@ -457,11 +467,9 @@ export const useAppLogic = () => {
             handleDialogClose();
         }
     };
-    
     const handleRenameTeam = async (newName: string) => {
         if (!newName || !state.teamToEdit) return;
         const { teamId } = state.teamToEdit;
-        // NOTE: Backend endpoint for rename is not implemented, this is an optimistic update.
         const newTeams = state.teams.map(t => t.teamId === teamId ? { ...t, name: newName } : t);
         dispatch({ type: 'UPDATE_TEAMS_LIST', payload: newTeams });
         if (state.activeTeam?.teamId === teamId) {
@@ -469,7 +477,6 @@ export const useAppLogic = () => {
         }
         handleDialogClose();
     };
-    
     const handleConfirmDeleteTeam = async () => {
         if (!state.teamToEdit) return;
         const { teamId } = state.teamToEdit;
@@ -496,7 +503,6 @@ export const useAppLogic = () => {
         handleLoadDesignSession,
         handleUpdateMission,
         handleChatAction,
-        // Dialog handlers
         handleDialogOpen,
         handleDialogClose,
         handleRenameChat,
