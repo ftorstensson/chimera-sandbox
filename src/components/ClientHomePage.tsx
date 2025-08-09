@@ -1,4 +1,5 @@
 // src/components/ClientHomePage.tsx
+// VERIFIED-STABLE-V2
 // v2.0 - STABILIZED: Removed holdingMessage prop to align with the simplified store.
 
 "use client";

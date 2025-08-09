@@ -1,4 +1,5 @@
 // src/app/page.tsx
+// VERIFIED-STABLE-V2
 // v72.1 - FINAL: Obeys the Next.js compiler by declaring this page as a client component, which is required for ssr:false.
 
 "use client"; // This is the definitive fix.

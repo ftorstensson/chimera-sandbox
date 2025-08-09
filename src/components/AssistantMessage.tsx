@@ -1,4 +1,5 @@
 // src/components/AssistantMessage.tsx
+// VERIFIED-STABLE-V2
 // v4.0 - Implements the Tailwind CSS Typography plugin for professional, global styling
 
 "use client";
