@@ -1,6 +1,5 @@
 // src/store/appStore.ts
-// VERIFIED-STABLE-V2
-// v3.0 - STABILIZED: Removed all holding_message and diagnostic logic for a clean baseline.
+// v3.1 - ENHANCEMENT: Added a generic setView method for navigation.
 
 import { parseAssistantResponse } from "@/lib/utils";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
@@ -74,7 +73,6 @@ class AppStore {
         let displayMessages = messages;
 
         if (isPolling) {
-            // Filter out the task message, but no longer handle a holding message.
             displayMessages = messages.filter(m => parseAssistantResponse(m.content).action !== 'execute_task');
         }
 
@@ -135,6 +133,11 @@ class AppStore {
 
     public setStatus(status: AppState['status']) {
         this.setState(prev => ({ ...prev, status }));
+    }
+
+    // NEW METHOD: A simple, generic way to change the application's view.
+    public setView(view: AppState['view']) {
+        this.setState(prev => ({ ...prev, view }));
     }
 }
 

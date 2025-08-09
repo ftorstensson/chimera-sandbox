@@ -1,15 +1,14 @@
 // src/hooks/useAppLogic.ts
-// VERIFIED-STABLE-V2
-// v73.0 - STABILIZED: Aligned with the simplified appStore and removed invalid properties.
+// v73.1 - ENHANCEMENT: Added handleSetView to control application view state.
 
 "use client";
 
 import { useEffect, useCallback, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
-import { appStore } from "@/store/appStore";
+import { appStore, AppState } from "@/store/appStore"; // Import AppState type
 import type { Team } from "@/components/AppLayout";
-import { parseAssistantResponse } from "@/lib/utils"; // Added for isDone check
+import { parseAssistantResponse } from "@/lib/utils";
 
 export const useAppLogic = () => {
     const state = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
@@ -66,7 +65,6 @@ export const useAppLogic = () => {
 
         const messages = result.body.messages;
         const lastMessage = messages[messages.length - 1];
-        // The isDone check is now simple and uses only the new data.
         const isDone = lastMessage && lastMessage.role !== 'user' && parseAssistantResponse(lastMessage.content).action !== 'execute_task';
         
         if (isDone) {
@@ -81,7 +79,6 @@ export const useAppLogic = () => {
                 });
             });
         } else {
-            // Let the store derive the 'polling' status automatically
             appStore.updateChatState({ messages: messages });
         }
     }, [safeFetch, stopPolling]);
@@ -105,7 +102,7 @@ export const useAppLogic = () => {
         const isNewChat = !state.currentChatId;
         
         appStore.setOptimisticMessage(userInput);
-
+        
         const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
             method: 'POST', 
             body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) 
@@ -125,7 +122,6 @@ export const useAppLogic = () => {
         if (!latestChatState?.body?.messages) {
             appStore.setError("Failed to fetch latest chat state.");
             return;
-
         }
         
         flushSync(() => {
@@ -155,15 +151,20 @@ export const useAppLogic = () => {
         const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (result?.body?.messages) {
             appStore.updateChatState({ chatId, messages: result.body.messages });
-
         }
     }, [safeFetch, stopPolling]);
+    
+    // NEW HANDLER: Exposes the store's setView method to the UI.
+    const handleSetView = (view: AppState['view']) => {
+        appStore.setView(view);
+    };
 
     return { 
         state, 
         handleSendMessage, 
         handleSetActiveTeam, 
         handleNewChat,
-        handleLoadChat
+        handleLoadChat,
+        handleSetView // Export the new handler
     };
 };
