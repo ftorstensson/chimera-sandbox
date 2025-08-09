@@ -1,4 +1,6 @@
 // src/lib/utils.ts
+// v3.1 - ROBUST: Guarantees all text properties are strings to prevent [object Object] bug.
+
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -14,6 +16,21 @@ export interface ParsedAssistantResponse {
   actions: { id: string; text: string; isPrimary?: boolean }[] | null;
 }
 
+// Helper to ensure a value is a string, converting objects to JSON string.
+function safeStringify(value: any): string | null {
+    if (value === null || typeof value === 'undefined') {
+        return null;
+    }
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
+
 export function parseAssistantResponse(content: string): ParsedAssistantResponse {
     const defaultResponse: ParsedAssistantResponse = {
         action: 'conversational',
@@ -27,52 +44,36 @@ export function parseAssistantResponse(content: string): ParsedAssistantResponse
         return { ...defaultResponse, action: 'unknown' };
     }
 
-    // Attempt to find a JSON block first
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-    const jsonString = jsonMatch ? jsonMatch[1] : content;
-
     try {
-        const parsed = JSON.parse(jsonString);
+        const parsed = JSON.parse(content);
 
         if (typeof parsed !== 'object' || parsed === null) {
             return defaultResponse;
         }
 
-        if (parsed.action === 'execute_task' && parsed.holding_message && parsed.task_for_team) {
+        if (parsed.action === 'execute_task' && parsed.holding_message) {
             return {
                 action: 'execute_task',
-                holding_message: parsed.holding_message,
-                task_for_team: parsed.task_for_team,
+                holding_message: safeStringify(parsed.holding_message),
+                task_for_team: safeStringify(parsed.task_for_team),
                 text: null,
                 actions: null,
             };
         }
         
-        if (parsed.action === 'redirect_to_team_builder' && parsed.message && Array.isArray(parsed.actions)) {
+        if ((parsed.action === 'redirect_to_team_builder' || Array.isArray(parsed.actions)) && (parsed.message || parsed.text)) {
              return {
                 action: 'redirect_to_team_builder',
                 holding_message: null,
                 task_for_team: null,
-                text: parsed.message,
+                text: safeStringify(parsed.message || parsed.text),
                 actions: parsed.actions,
             };
         }
         
-         if (parsed.text && Array.isArray(parsed.actions)) {
-            return {
-                action: 'redirect_to_team_builder', // Treat this as a generic action as well
-                holding_message: null,
-                task_for_team: null,
-                text: parsed.text,
-                actions: parsed.actions,
-            };
-        }
-
-        // If it's valid JSON but doesn't match a known action structure, return as conversational
         return defaultResponse;
 
     } catch (e) {
-        // If parsing fails, it's just a regular string message
         return defaultResponse;
     }
 }

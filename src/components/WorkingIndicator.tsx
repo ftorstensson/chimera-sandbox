@@ -1,26 +1,30 @@
-// src/app/_sandbox/WorkingIndicator.tsx
-// v1.1 - Refined animation with a brighter green for more contrast
-
-"use client";
+// src/components/WorkingIndicator.tsx
+// v2.0 - STABILIZED: Made the 'message' prop optional to allow for generic loading states.
 
 import React from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 
+// The 'message' prop is now optional (message?: string)
 interface WorkingIndicatorProps {
-  message: string;
+  message?: string;
 }
 
 export const WorkingIndicator: React.FC<WorkingIndicatorProps> = ({ message }) => {
   return (
-    <div className="flex flex-col items-center justify-center p-8 bg-gray-100 dark:bg-gray-900 rounded-lg">
-      <div className="flex space-x-2">
-        {/* The green is now lighter for a more obvious pulse animation */}
-        <span className="h-4 w-4 bg-green-400 rounded-full animate-pulse [animation-delay:-0.3s]"></span>
-        <span className="h-4 w-4 bg-green-400 rounded-full animate-pulse [animation-delay:-0.15s]"></span>
-        <span className="h-4 w-4 bg-green-400 rounded-full animate-pulse"></span>
-      </div>
-      <p className="mt-6 text-lg text-gray-600 dark:text-gray-400 max-w-md text-center">
-        {message}
-      </p>
+    <div className="flex justify-center items-center p-4">
+      <Card className="bg-gray-100 dark:bg-zinc-800 p-2 rounded-lg max-w-xs animate-pulse">
+        <CardContent className="p-2">
+          <div className="flex items-center space-x-2">
+            <div className="flex space-x-1">
+              <span className="h-2 w-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+              <span className="h-2 w-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+              <span className="h-2 w-2 bg-gray-500 dark:bg-gray-400 rounded-full animate-bounce"></span>
+            </div>
+            {/* We only display a message if one is provided */}
+            {message && <p className="text-sm text-gray-600 dark:text-gray-300">{message}</p>}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
