@@ -1,4 +1,5 @@
 // src/store/appStore.ts
+// VERIFIED-STABLE-V1
 // v3.0 - STABILIZED: Removed all holding_message and diagnostic logic for a clean baseline.
 
 import { parseAssistantResponse } from "@/lib/utils";

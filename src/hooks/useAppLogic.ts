@@ -1,4 +1,5 @@
 // src/hooks/useAppLogic.ts
+// VERIFIED-STABLE-V1
 // v73.0 - STABILIZED: Aligned with the simplified appStore and removed invalid properties.
 
 "use client";
