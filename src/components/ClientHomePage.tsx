@@ -1,6 +1,5 @@
 // src/components/ClientHomePage.tsx
-// VERIFIED-STABLE-V2
-// v2.0 - STABILIZED: Removed holdingMessage prop to align with the simplified store.
+// v2.1 - ENHANCEMENT: Implemented setActiveMode to switch to team_builder view.
 
 "use client";
 
@@ -24,6 +23,7 @@ export default function ClientHomePage() {
         handleSetActiveTeam,
         handleNewChat,
         handleLoadChat,
+        handleSetView, // Import the new handler
     } = useAppLogic();
 
     const [currentInput, setCurrentInput] = useState("");
@@ -38,10 +38,18 @@ export default function ClientHomePage() {
         console.log("Team Builder submission is not yet implemented with the new store.");
     };
     
+    // NEW HANDLER: Switches the view based on the active mode from AppLayout.
+    const onSetActiveMode = (mode: 'chat' | 'team') => {
+        if (mode === 'team') {
+            handleSetView('team_builder');
+        } else {
+            handleSetView('chat');
+        }
+    };
+
     const renderMainContent = () => {
         if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
 
-        // STABILIZATION CHANGE: Destructure only displayMessages. holdingMessage is gone.
         const { displayMessages } = state.renderState;
         const isLoading = state.status === 'loading' || state.status === 'polling';
         
@@ -54,8 +62,6 @@ export default function ClientHomePage() {
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading}
-                    // STABILIZATION CHANGE: holdingMessage prop is removed.
-                    // The ChatView will now rely solely on isLoading for its indicator.
                     handleSendMessage={onSendMessage}
                     onAction={() => console.log("onAction placeholder")} 
                 />;
@@ -72,12 +78,12 @@ export default function ClientHomePage() {
                     onDeleteTeam={() => alert("Delete Team functionality is pending.")}
                 />;
             case 'team_builder':
+                 // For now, Team Builder uses the same ChatView for its conversational interface.
                  return <ChatView 
                     messages={state.messages} 
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading} 
-                    // STABILIZATION CHANGE: holdingMessage prop is removed.
                     handleSendMessage={onSubmitTeamBuilder}
                     onAction={() => console.log("onAction placeholder")} 
                 />;
@@ -90,7 +96,8 @@ export default function ClientHomePage() {
     return (
         <AppLayout
             activeMode={activeMode}
-            setActiveMode={() => console.log("setActiveMode is pending implementation")}
+            // Use the new, real handler instead of the placeholder.
+            setActiveMode={onSetActiveMode}
             teams={state.teams}
             designSessions={state.designSessions}
             activeTeam={state.activeTeam}
@@ -100,7 +107,7 @@ export default function ClientHomePage() {
             onSetActiveTeam={handleSetActiveTeam}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
-            onCreateTeamWithAIClick={() => console.log("onCreateTeamWithAIClick is pending implementation")}
+            onCreateTeamWithAIClick={() => handleSetView('team_builder')} // Also wire up this button
             onLoadDesignSession={() => console.log("onLoadDesignSession is pending implementation")}
             onDeleteDesignSession={() => alert("Delete Design Session functionality is pending.")}
             onRenameChat={() => alert("Rename Chat functionality is pending.")}
