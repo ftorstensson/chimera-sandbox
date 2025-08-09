@@ -1,5 +1,5 @@
 // src/components/WorkingIndicator.tsx
-// VERIFIED-STABLE-V1
+// VERIFIED-STABLE-V2
 // v2.0 - STABILIZED: Made the 'message' prop optional to allow for generic loading states.
 
 import React from 'react';

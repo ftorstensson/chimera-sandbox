@@ -1,5 +1,5 @@
 // src/components/page-views.tsx
-// VERIFIED-STABLE-V1
+// VERIFIED-STABLE-V2
 // v2.4 - DEFINITIVE FIX: Corrected AssistantMessage to pass content as children.
 
 "use client";
