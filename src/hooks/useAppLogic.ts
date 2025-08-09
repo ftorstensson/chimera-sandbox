@@ -104,7 +104,7 @@ export const useAppLogic = () => {
         const isNewChat = !state.currentChatId;
         
         appStore.setOptimisticMessage(userInput);
-        
+
         const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
             method: 'POST', 
             body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) 
@@ -124,6 +124,7 @@ export const useAppLogic = () => {
         if (!latestChatState?.body?.messages) {
             appStore.setError("Failed to fetch latest chat state.");
             return;
+
         }
         
         flushSync(() => {
@@ -153,6 +154,7 @@ export const useAppLogic = () => {
         const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (result?.body?.messages) {
             appStore.updateChatState({ chatId, messages: result.body.messages });
+
         }
     }, [safeFetch, stopPolling]);
 
