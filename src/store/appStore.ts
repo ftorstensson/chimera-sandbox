@@ -1,5 +1,5 @@
 // src/store/appStore.ts
-// v3.1 - ENHANCEMENT: Added a generic setView method for navigation.
+// v3.2 - FEATURE: Added updateTeamBuilderState and context-aware methods.
 
 import { parseAssistantResponse } from "@/lib/utils";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
@@ -95,14 +95,29 @@ class AppStore {
     }
     
     public setOptimisticMessage(userInput: string) {
+        const optimisticMessage = { role: 'user', content: userInput };
+
         this.setState(prev => {
-            const optimisticMessages = [...prev.messages, { role: 'user', content: userInput }];
-            return {
-                ...prev,
-                status: 'loading',
-                messages: optimisticMessages,
-                renderState: { ...prev.renderState, displayMessages: optimisticMessages }
-            };
+            if (prev.view === 'team_builder') {
+                const currentMessages = prev.activeDesignSession?.messages || [];
+                const updatedSession = { 
+                    ...prev.activeDesignSession!, 
+                    messages: [...currentMessages, optimisticMessage] 
+                };
+                return {
+                    ...prev,
+                    status: 'loading',
+                    activeDesignSession: updatedSession,
+                };
+            } else {
+                const optimisticMessages = [...prev.messages, optimisticMessage];
+                return {
+                    ...prev,
+                    status: 'loading',
+                    messages: optimisticMessages,
+                    renderState: { ...prev.renderState, displayMessages: optimisticMessages }
+                };
+            }
         });
     }
 
@@ -135,9 +150,28 @@ class AppStore {
         this.setState(prev => ({ ...prev, status }));
     }
 
-    // NEW METHOD: A simple, generic way to change the application's view.
-    public setView(view: AppState['view']) {
-        this.setState(prev => ({ ...prev, view }));
+    public setView(view: AppState['view'], session?: DesignSession) {
+        this.setState(prev => ({ 
+            ...prev, 
+            view,
+            activeDesignSession: view === 'team_builder' ? (session || { designSessionId: '', name: 'New Team Design', messages: [] }) : null,
+        }));
+    }
+
+    public updateTeamBuilderState(updatedSession: DesignSession) {
+        this.setState(prev => {
+            const sessionExists = prev.designSessions.some(ds => ds.designSessionId === updatedSession.designSessionId);
+            const newDesignSessions = sessionExists 
+                ? prev.designSessions.map(ds => ds.designSessionId === updatedSession.designSessionId ? updatedSession : ds)
+                : [...prev.designSessions, updatedSession];
+
+            return {
+                ...prev,
+                status: 'idle',
+                activeDesignSession: updatedSession,
+                designSessions: newDesignSessions
+            };
+        });
     }
 }
 

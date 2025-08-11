@@ -1,13 +1,13 @@
 // src/hooks/useAppLogic.ts
-// v73.1 - ENHANCEMENT: Added handleSetView to control application view state.
+// v73.2 - FEATURE: Added handlers for team builder lifecycle.
 
 "use client";
 
 import { useEffect, useCallback, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
-import { appStore, AppState } from "@/store/appStore"; // Import AppState type
-import type { Team } from "@/components/AppLayout";
+import { appStore, AppState } from "@/store/appStore";
+import type { Team, DesignSession } from "@/components/AppLayout";
 import { parseAssistantResponse } from "@/lib/utils";
 
 export const useAppLogic = () => {
@@ -133,6 +133,28 @@ export const useAppLogic = () => {
         });
     };
 
+    const handleSendTeamBuilderMessage = async (userInput: string) => {
+        if (!userInput) return;
+        
+        appStore.setOptimisticMessage(userInput);
+        const optimisticState = appStore.getSnapshot();
+        const sessionToSend = optimisticState.activeDesignSession;
+        
+        if (!sessionToSend) return appStore.setError("No active design session found for optimistic update.");
+
+        const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, {
+            method: 'POST',
+            body: JSON.stringify({
+                designSessionId: sessionToSend.designSessionId,
+                messages: sessionToSend.messages,
+            }),
+        });
+        
+        if (response?.body) {
+            flushSync(() => appStore.updateTeamBuilderState(response.body));
+        }
+    };
+
     const handleSetActiveTeam = (teamOrId: Team | string) => {
         const team = typeof teamOrId === 'string' ? state.teams.find(t => t.teamId === teamOrId) : teamOrId;
         if (!team) return;
@@ -154,9 +176,16 @@ export const useAppLogic = () => {
         }
     }, [safeFetch, stopPolling]);
     
-    // NEW HANDLER: Exposes the store's setView method to the UI.
-    const handleSetView = (view: AppState['view']) => {
-        appStore.setView(view);
+    const handleSetView = (view: AppState['view'], session?: DesignSession) => {
+        appStore.setView(view, session);
+    };
+
+    const handleCreateTeamWithAI = () => {
+        appStore.setView('team_builder');
+    };
+
+    const handleLoadDesignSession = (session: DesignSession) => {
+        appStore.setView('team_builder', session);
     };
 
     return { 
@@ -165,6 +194,9 @@ export const useAppLogic = () => {
         handleSetActiveTeam, 
         handleNewChat,
         handleLoadChat,
-        handleSetView // Export the new handler
+        handleSetView,
+        handleSendTeamBuilderMessage,
+        handleCreateTeamWithAI,
+        handleLoadDesignSession,
     };
 };

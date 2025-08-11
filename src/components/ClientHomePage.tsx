@@ -1,10 +1,10 @@
 // src/components/ClientHomePage.tsx
-// v2.1 - ENHANCEMENT: Implemented setActiveMode to switch to team_builder view.
+// v2.2 - FEATURE: Fully wired up the team builder view.
 
 "use client";
 
 import { useState } from "react";
-import { AppLayout } from "@/components/AppLayout";
+import { AppLayout, DesignSession } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
 import { useAppLogic } from "@/hooks/useAppLogic";
 
@@ -23,7 +23,10 @@ export default function ClientHomePage() {
         handleSetActiveTeam,
         handleNewChat,
         handleLoadChat,
-        handleSetView, // Import the new handler
+        handleSetView,
+        handleSendTeamBuilderMessage,
+        handleCreateTeamWithAI,
+        handleLoadDesignSession,
     } = useAppLogic();
 
     const [currentInput, setCurrentInput] = useState("");
@@ -33,60 +36,55 @@ export default function ClientHomePage() {
         handleSendMessage(currentInput);
         setCurrentInput("");
     };
-
-    const onSubmitTeamBuilder = () => {
-        console.log("Team Builder submission is not yet implemented with the new store.");
-    };
     
-    // NEW HANDLER: Switches the view based on the active mode from AppLayout.
-    const onSetActiveMode = (mode: 'chat' | 'team') => {
-        if (mode === 'team') {
-            handleSetView('team_builder');
-        } else {
-            handleSetView('chat');
-        }
+    const onSendTeamBuilderMessage = () => {
+        if (!currentInput.trim()) return;
+        handleSendTeamBuilderMessage(currentInput);
+        setCurrentInput("");
     };
 
     const renderMainContent = () => {
         if (state.status === 'error') return <div className="p-8 text-red-500">Error: {state.error}</div>;
 
-        const { displayMessages } = state.renderState;
         const isLoading = state.status === 'loading' || state.status === 'polling';
         
         switch (state.view) {
             case 'welcome': return <WelcomeScreen onStartChat={handleNewChat} activeTeam={state.activeTeam} />;
+            
             case 'chat':
                 if (!state.activeTeam) return <WelcomeScreen onStartChat={handleNewChat} activeTeam={state.activeTeam} />;
                 return <ChatView 
-                    messages={displayMessages} 
+                    messages={state.renderState.displayMessages} 
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading}
                     handleSendMessage={onSendMessage}
                     onAction={() => console.log("onAction placeholder")} 
                 />;
+            
             case 'team_management':
                 if (!state.activeTeam) return <TeamWelcomeScreen />;
                 return <TeamManagementView 
                     team={state.activeTeam} 
                     agents={state.agents} 
-                    isLoading={state.status === 'loading'}
+                    isLoading={isLoading}
                     onCreateAgent={() => alert("Create Agent functionality is pending.")}
                     onEditAgent={() => alert("Edit Agent functionality is pending.")}
                     onUpdateMission={() => alert("Update Mission functionality is pending.")}
                     onRenameTeam={() => alert("Rename Team functionality is pending.")}
                     onDeleteTeam={() => alert("Delete Team functionality is pending.")}
                 />;
+
             case 'team_builder':
-                 // For now, Team Builder uses the same ChatView for its conversational interface.
                  return <ChatView 
-                    messages={state.messages} 
+                    messages={state.activeDesignSession?.messages || []} 
                     currentInput={currentInput} 
                     setCurrentInput={setCurrentInput} 
                     isLoading={isLoading} 
-                    handleSendMessage={onSubmitTeamBuilder}
+                    handleSendMessage={onSendTeamBuilderMessage}
                     onAction={() => console.log("onAction placeholder")} 
                 />;
+
             default: return <WelcomeScreen onStartChat={handleNewChat} activeTeam={state.activeTeam} />;
         }
     };
@@ -96,8 +94,7 @@ export default function ClientHomePage() {
     return (
         <AppLayout
             activeMode={activeMode}
-            // Use the new, real handler instead of the placeholder.
-            setActiveMode={onSetActiveMode}
+            setActiveMode={(mode) => handleSetView(mode === 'team' ? 'team_management' : 'chat')}
             teams={state.teams}
             designSessions={state.designSessions}
             activeTeam={state.activeTeam}
@@ -107,12 +104,12 @@ export default function ClientHomePage() {
             onSetActiveTeam={handleSetActiveTeam}
             onNewChat={handleNewChat}
             onLoadChat={handleLoadChat}
-            onCreateTeamWithAIClick={() => handleSetView('team_builder')} // Also wire up this button
-            onLoadDesignSession={() => console.log("onLoadDesignSession is pending implementation")}
-            onDeleteDesignSession={() => alert("Delete Design Session functionality is pending.")}
-            onRenameChat={() => alert("Rename Chat functionality is pending.")}
-            onDeleteChat={() => alert("Delete Chat functionality is pending.")}
-            onUpdateMission={() => alert("Update Mission functionality is pending.")}
+            onCreateTeamWithAIClick={handleCreateTeamWithAI}
+            onLoadDesignSession={handleLoadDesignSession}
+            onDeleteDesignSession={(session: DesignSession) => alert(`Deleting ${session.name} is pending.`)}
+            onRenameChat={(chat) => alert(`Renaming ${chat.title} is pending.`)}
+            onDeleteChat={(chat) => alert(`Deleting ${chat.title} is pending.`)}
+            onUpdateMission={(mission) => alert(`Updating mission is pending.`)}
         >
             {renderMainContent()}
         </AppLayout>
