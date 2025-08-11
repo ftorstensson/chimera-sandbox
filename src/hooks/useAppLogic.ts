@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// v73.2 - FEATURE: Added handlers for team builder lifecycle.
+// v73.3 - FEATURE: Handles structured API responses and finalizes team creation.
 
 "use client";
 
@@ -62,22 +62,13 @@ export const useAppLogic = () => {
         if (!chatId || !teamId) return;
         const result = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
         if (!result?.body?.messages) return;
-
         const messages = result.body.messages;
         const lastMessage = messages[messages.length - 1];
         const isDone = lastMessage && lastMessage.role !== 'user' && parseAssistantResponse(lastMessage.content).action !== 'execute_task';
-        
         if (isDone) {
             stopPolling();
             const newHistoryResult = await safeFetch(`${backendApiUrl}/teams/${teamId}/chats`);
-            flushSync(() => {
-                appStore.updateChatState({
-                    chatId,
-                    messages: messages,
-                    newChatHistory: newHistoryResult?.body,
-                    status: 'idle'
-                });
-            });
+            flushSync(() => { appStore.updateChatState({ chatId, messages: messages, newChatHistory: newHistoryResult?.body, status: 'idle' }); });
         } else {
             appStore.updateChatState({ messages: messages });
         }
@@ -87,7 +78,6 @@ export const useAppLogic = () => {
         const isPolling = state.status === 'polling';
         const chatId = state.currentChatId;
         const teamId = state.activeTeam?.teamId;
-
         if (isPolling && chatId && teamId) {
             stopPolling(); 
             pollingIntervalRef.current = setInterval(() => pollChat(chatId, teamId), 3000);
@@ -100,57 +90,44 @@ export const useAppLogic = () => {
     const handleSendMessage = async (userInput: string) => {
         if (!userInput || !state.activeTeam) return;
         const isNewChat = !state.currentChatId;
-        
         appStore.setOptimisticMessage(userInput);
-        
-        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
-            method: 'POST', 
-            body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) 
-        });
-
-        if (!response?.body?.chatId) {
-            appStore.setError("Backend did not return a valid chat ID.");
-            return;
-        }
-
+        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) });
+        if (!response?.body?.chatId) return appStore.setError("Backend did not return a valid chat ID.");
         const chatId = response.body.chatId;
-        const [latestChatState, newHistoryResult] = await Promise.all([
-            safeFetch(`${backendApiUrl}/chats/${chatId}`),
-            isNewChat ? safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : Promise.resolve(null)
-        ]);
-        
-        if (!latestChatState?.body?.messages) {
-            appStore.setError("Failed to fetch latest chat state.");
-            return;
-        }
-        
-        flushSync(() => {
-            appStore.updateChatState({ 
-                chatId, 
-                messages: latestChatState.body.messages,
-                newChatHistory: newHistoryResult?.body 
-            });
+        const [latestChatState, newHistoryResult] = await Promise.all([ safeFetch(`${backendApiUrl}/chats/${chatId}`), isNewChat ? safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : Promise.resolve(null) ]);
+        if (!latestChatState?.body?.messages) return appStore.setError("Failed to fetch latest chat state.");
+        flushSync(() => { appStore.updateChatState({ chatId, messages: latestChatState.body.messages, newChatHistory: newHistoryResult?.body }); });
+    };
+
+    const handleCreateTeam = async (submissionPayload: any, designSessionId: string) => {
+        appStore.setStatus('loading');
+        const response = await safeFetch(`${backendApiUrl}/team-builder/create`, {
+            method: 'POST',
+            body: JSON.stringify({ ...submissionPayload, designSessionId }),
         });
+        if (response?.body?.success) {
+            const newTeam = { teamId: response.body.teamId, name: response.body.name, mission: response.body.mission };
+            flushSync(() => { appStore.finalizeTeamCreation(newTeam, designSessionId); });
+        } else {
+            appStore.setError("Failed to create the new team.");
+        }
     };
 
     const handleSendTeamBuilderMessage = async (userInput: string) => {
         if (!userInput) return;
-        
         appStore.setOptimisticMessage(userInput);
         const optimisticState = appStore.getSnapshot();
         const sessionToSend = optimisticState.activeDesignSession;
-        
         if (!sessionToSend) return appStore.setError("No active design session found for optimistic update.");
 
         const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, {
             method: 'POST',
-            body: JSON.stringify({
-                designSessionId: sessionToSend.designSessionId,
-                messages: sessionToSend.messages,
-            }),
+            body: JSON.stringify({ designSessionId: sessionToSend.designSessionId, messages: sessionToSend.messages }),
         });
         
-        if (response?.body) {
+        if (response?.body?.response_type === 'FINAL_SUBMISSION') {
+            await handleCreateTeam(response.body.submission_payload, response.body.designSessionId);
+        } else if (response?.body) {
             flushSync(() => appStore.updateTeamBuilderState(response.body));
         }
     };

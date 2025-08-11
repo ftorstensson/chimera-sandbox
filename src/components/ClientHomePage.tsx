@@ -1,16 +1,15 @@
 // src/components/ClientHomePage.tsx
-// v2.2 - FEATURE: Fully wired up the team builder view.
+// v2.3 - FEATURE: Fully wired up the team builder finalization logic.
 
 "use client";
 
 import { useState } from "react";
-import { AppLayout, DesignSession } from "@/components/AppLayout";
+import { AppLayout, DesignSession, Team } from "@/components/AppLayout";
 import { WelcomeScreen, ChatView, TeamManagementView } from "@/components/page-views";
 import { useAppLogic } from "@/hooks/useAppLogic";
 
 const TeamWelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full text-center">
-      <div className="text-gray-400 mb-4 h-12 w-12" />
       <h1 className="text-2xl font-bold">Team Management</h1>
       <p className="mt-2 text-lg text-gray-500 dark:text-gray-400">Select a team from the sidebar to view and manage its agents.</p>
     </div>
@@ -67,10 +66,10 @@ export default function ClientHomePage() {
                 return <TeamManagementView 
                     team={state.activeTeam} 
                     agents={state.agents} 
-                    isLoading={isLoading}
+                    isLoading={state.status === 'loading'}
                     onCreateAgent={() => alert("Create Agent functionality is pending.")}
-                    onEditAgent={() => alert("Edit Agent functionality is pending.")}
-                    onUpdateMission={() => alert("Update Mission functionality is pending.")}
+                    onEditAgent={(agent) => alert(`Editing ${agent.name} is pending.`)}
+                    onUpdateMission={(mission) => alert(`Updating mission for ${state.activeTeam?.name} is pending.`)}
                     onRenameTeam={() => alert("Rename Team functionality is pending.")}
                     onDeleteTeam={() => alert("Delete Team functionality is pending.")}
                 />;
@@ -109,7 +108,7 @@ export default function ClientHomePage() {
             onDeleteDesignSession={(session: DesignSession) => alert(`Deleting ${session.name} is pending.`)}
             onRenameChat={(chat) => alert(`Renaming ${chat.title} is pending.`)}
             onDeleteChat={(chat) => alert(`Deleting ${chat.title} is pending.`)}
-            onUpdateMission={(mission) => alert(`Updating mission is pending.`)}
+            onUpdateMission={(mission: string) => alert(`Updating mission is pending.`)}
         >
             {renderMainContent()}
         </AppLayout>

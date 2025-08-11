@@ -1,5 +1,5 @@
 // src/store/appStore.ts
-// v3.2 - FEATURE: Added updateTeamBuilderState and context-aware methods.
+// v3.3 - FEATURE: Added finalizeTeamCreation to handle successful team creation.
 
 import { parseAssistantResponse } from "@/lib/utils";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
@@ -69,13 +69,10 @@ class AppStore {
         const lastMessage = messages[messages.length - 1];
         const parsedLastMessage = parseAssistantResponse(lastMessage?.content);
         const isPolling = parsedLastMessage.action === 'execute_task';
-
         let displayMessages = messages;
-
         if (isPolling) {
             displayMessages = messages.filter(m => parseAssistantResponse(m.content).action !== 'execute_task');
         }
-
         return { renderState: { displayMessages }, isPolling };
     }
 
@@ -96,42 +93,21 @@ class AppStore {
     
     public setOptimisticMessage(userInput: string) {
         const optimisticMessage = { role: 'user', content: userInput };
-
         this.setState(prev => {
             if (prev.view === 'team_builder') {
                 const currentMessages = prev.activeDesignSession?.messages || [];
-                const updatedSession = { 
-                    ...prev.activeDesignSession!, 
-                    messages: [...currentMessages, optimisticMessage] 
-                };
-                return {
-                    ...prev,
-                    status: 'loading',
-                    activeDesignSession: updatedSession,
-                };
+                const updatedSession = { ...prev.activeDesignSession!, messages: [...currentMessages, optimisticMessage] };
+                return { ...prev, status: 'loading', activeDesignSession: updatedSession };
             } else {
                 const optimisticMessages = [...prev.messages, optimisticMessage];
-                return {
-                    ...prev,
-                    status: 'loading',
-                    messages: optimisticMessages,
-                    renderState: { ...prev.renderState, displayMessages: optimisticMessages }
-                };
+                return { ...prev, status: 'loading', messages: optimisticMessages, renderState: { ...prev.renderState, displayMessages: optimisticMessages } };
             }
         });
     }
 
     public updateChatState(payload: { chatId?: string; messages: any[], newChatHistory?: ChatHistoryItem[], status?: AppState['status'] }) {
         const { renderState, isPolling } = this.computeRenderState(payload.messages);
-        this.setState(prev => ({
-            ...prev,
-            status: payload.status || (isPolling ? 'polling' : 'idle'),
-            currentChatId: payload.chatId || prev.currentChatId,
-            messages: payload.messages,
-            chatHistory: payload.newChatHistory || prev.chatHistory,
-            renderState: renderState,
-            view: 'chat'
-        }));
+        this.setState(prev => ({ ...prev, status: payload.status || (isPolling ? 'polling' : 'idle'), currentChatId: payload.chatId || prev.currentChatId, messages: payload.messages, chatHistory: payload.newChatHistory || prev.chatHistory, renderState: renderState, view: 'chat' }));
     }
 
     public startNewChat() {
@@ -164,14 +140,21 @@ class AppStore {
             const newDesignSessions = sessionExists 
                 ? prev.designSessions.map(ds => ds.designSessionId === updatedSession.designSessionId ? updatedSession : ds)
                 : [...prev.designSessions, updatedSession];
-
-            return {
-                ...prev,
-                status: 'idle',
-                activeDesignSession: updatedSession,
-                designSessions: newDesignSessions
-            };
+            return { ...prev, status: 'idle', activeDesignSession: updatedSession, designSessions: newDesignSessions };
         });
+    }
+
+    // NEW METHOD
+    public finalizeTeamCreation(newTeam: Team, completedSessionId: string) {
+        this.setState(prev => ({
+            ...prev,
+            teams: [...prev.teams, newTeam], // Add the new team to the list
+            designSessions: prev.designSessions.filter(ds => ds.designSessionId !== completedSessionId), // Remove the completed session
+            activeDesignSession: null, // Deactivate the session
+            activeTeam: newTeam, // Make the new team active
+            view: 'team_management', // Switch to the team management view
+            status: 'idle'
+        }));
     }
 }
 
