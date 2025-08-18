@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// v73.3 - FEATURE: Handles structured API responses and finalizes team creation.
+// v73.4 - FIX: Eliminates message disappearing race condition.
 
 "use client";
 
@@ -12,7 +12,7 @@ import { parseAssistantResponse } from "@/lib/utils";
 
 export const useAppLogic = () => {
     const state = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
-    const backendApiUrl = '/api';
+    const backendApiUrl = '/api'; // Using the rewrite proxy
 
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}): Promise<{ success: boolean; status: number; body: any } | null> => {
         try {
@@ -87,16 +87,48 @@ export const useAppLogic = () => {
         return () => stopPolling();
     }, [state.status, state.currentChatId, state.activeTeam?.teamId, pollChat, stopPolling]);
 
+    // --- REFACTORED METHOD ---
     const handleSendMessage = async (userInput: string) => {
         if (!userInput || !state.activeTeam) return;
         const isNewChat = !state.currentChatId;
         appStore.setOptimisticMessage(userInput);
-        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { method: 'POST', body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) });
-        if (!response?.body?.chatId) return appStore.setError("Backend did not return a valid chat ID.");
-        const chatId = response.body.chatId;
-        const [latestChatState, newHistoryResult] = await Promise.all([ safeFetch(`${backendApiUrl}/chats/${chatId}`), isNewChat ? safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : Promise.resolve(null) ]);
-        if (!latestChatState?.body?.messages) return appStore.setError("Failed to fetch latest chat state.");
-        flushSync(() => { appStore.updateChatState({ chatId, messages: latestChatState.body.messages, newChatHistory: newHistoryResult?.body }); });
+
+        const response = await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`, { 
+            method: 'POST', 
+            body: JSON.stringify({ message: userInput, chatId: state.currentChatId }) 
+        });
+
+        if (!response || !response.body) {
+            return appStore.setError("An unknown error occurred while sending the message.");
+        }
+
+        // Case 1: Standard conversational turn (200 OK)
+        if (response.status === 200 && response.body.messages) {
+            const newHistoryResult = isNewChat ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : null;
+            flushSync(() => { 
+                appStore.updateChatState({ 
+                    chatId: response.body.chatId, 
+                    messages: response.body.messages, 
+                    newChatHistory: newHistoryResult?.body 
+                }); 
+            });
+        // Case 2: ARCE workflow started (202 Accepted)
+        } else if (response.status === 202 && response.body.success) {
+            const chatId = response.body.chatId;
+            // The POST response doesn't have the message list in this case, so we must fetch it once
+            // to get the new "holding message".
+            const latestChatState = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
+            if (latestChatState?.body?.messages) {
+                flushSync(() => {
+                    appStore.updateChatState({
+                        chatId,
+                        messages: latestChatState.body.messages
+                    });
+                });
+            }
+        } else {
+            appStore.setError(response.body.error || "Failed to process message.");
+        }
     };
 
     const handleCreateTeam = async (submissionPayload: any, designSessionId: string) => {
