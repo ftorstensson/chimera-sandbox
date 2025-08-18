@@ -187,13 +187,15 @@ export const useAppLogic = () => {
     // --- REFACTORED METHOD ---
     const handleCreateTeamWithAI = async () => {
         appStore.setStatus('loading');
+        // --- THE FIX: Send an initial message to satisfy backend validation ---
+        const initialMessage = { role: 'user', content: 'Hello, I would like to build a new team.' };
+        
         const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, {
             method: 'POST',
-            body: JSON.stringify({ messages: [] }), // Send empty messages to create a new session
+            body: JSON.stringify({ messages: [initialMessage] }), 
         });
-
+    
         if (response?.body?.designSessionId) {
-            // The backend returns the new session object
             flushSync(() => appStore.initializeNewDesignSession(response.body));
         } else {
             appStore.setError("Failed to create a new design session on the backend.");
