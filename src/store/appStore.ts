@@ -1,5 +1,5 @@
 // src/store/appStore.ts
-// v3.3 - FEATURE: Added finalizeTeamCreation to handle successful team creation.
+// v3.4 - FIX: Correctly trigger agent fetch after team creation.
 
 import { parseAssistantResponse } from "@/lib/utils";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
@@ -144,16 +144,20 @@ class AppStore {
         });
     }
 
-    // NEW METHOD
     public finalizeTeamCreation(newTeam: Team, completedSessionId: string) {
         this.setState(prev => ({
             ...prev,
-            teams: [...prev.teams, newTeam], // Add the new team to the list
-            designSessions: prev.designSessions.filter(ds => ds.designSessionId !== completedSessionId), // Remove the completed session
-            activeDesignSession: null, // Deactivate the session
-            activeTeam: newTeam, // Make the new team active
-            view: 'team_management', // Switch to the team management view
-            status: 'idle'
+            teams: [...prev.teams, newTeam],
+            designSessions: prev.designSessions.filter(ds => ds.designSessionId !== completedSessionId),
+            activeDesignSession: null,
+            activeTeam: newTeam,
+            view: 'team_management',
+            // --- THE FIX ---
+            // 1. Reset the dependencies of the old team.
+            agents: [],
+            chatHistory: [],
+            // 2. Set status to 'loading' to trigger the data fetch effect in useAppLogic.
+            status: 'loading'
         }));
     }
 }
