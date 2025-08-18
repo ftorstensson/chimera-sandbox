@@ -1,5 +1,5 @@
 // src/hooks/useAppLogic.ts
-// v73.4 - FIX: Eliminates message disappearing race condition.
+// v73.4 - FIX: Correctly create new design session via backend API call.
 
 "use client";
 
@@ -87,7 +87,6 @@ export const useAppLogic = () => {
         return () => stopPolling();
     }, [state.status, state.currentChatId, state.activeTeam?.teamId, pollChat, stopPolling]);
 
-    // --- REFACTORED METHOD ---
     const handleSendMessage = async (userInput: string) => {
         if (!userInput || !state.activeTeam) return;
         const isNewChat = !state.currentChatId;
@@ -101,8 +100,7 @@ export const useAppLogic = () => {
         if (!response || !response.body) {
             return appStore.setError("An unknown error occurred while sending the message.");
         }
-
-        // Case 1: Standard conversational turn (200 OK)
+        
         if (response.status === 200 && response.body.messages) {
             const newHistoryResult = isNewChat ? await safeFetch(`${backendApiUrl}/teams/${state.activeTeam.teamId}/chats`) : null;
             flushSync(() => { 
@@ -112,11 +110,8 @@ export const useAppLogic = () => {
                     newChatHistory: newHistoryResult?.body 
                 }); 
             });
-        // Case 2: ARCE workflow started (202 Accepted)
         } else if (response.status === 202 && response.body.success) {
             const chatId = response.body.chatId;
-            // The POST response doesn't have the message list in this case, so we must fetch it once
-            // to get the new "holding message".
             const latestChatState = await safeFetch(`${backendApiUrl}/chats/${chatId}`);
             if (latestChatState?.body?.messages) {
                 flushSync(() => {
@@ -188,9 +183,21 @@ export const useAppLogic = () => {
     const handleSetView = (view: AppState['view'], session?: DesignSession) => {
         appStore.setView(view, session);
     };
+    
+    // --- REFACTORED METHOD ---
+    const handleCreateTeamWithAI = async () => {
+        appStore.setStatus('loading');
+        const response = await safeFetch(`${backendApiUrl}/team-builder/chat`, {
+            method: 'POST',
+            body: JSON.stringify({ messages: [] }), // Send empty messages to create a new session
+        });
 
-    const handleCreateTeamWithAI = () => {
-        appStore.setView('team_builder');
+        if (response?.body?.designSessionId) {
+            // The backend returns the new session object
+            flushSync(() => appStore.initializeNewDesignSession(response.body));
+        } else {
+            appStore.setError("Failed to create a new design session on the backend.");
+        }
     };
 
     const handleLoadDesignSession = (session: DesignSession) => {

@@ -1,5 +1,5 @@
 // src/store/appStore.ts
-// v3.4 - FIX: Correctly trigger agent fetch after team creation.
+// v3.5 - FEATURE: Added initializeNewDesignSession to correctly handle new team creation.
 
 import { parseAssistantResponse } from "@/lib/utils";
 import type { Team, ChatHistoryItem, Agent, DesignSession } from "@/components/AppLayout";
@@ -92,13 +92,14 @@ class AppStore {
     }
     
     public setOptimisticMessage(userInput: string) {
-        const optimisticMessage = { role: 'user', content: userInput };
         this.setState(prev => {
             if (prev.view === 'team_builder') {
+                const optimisticMessage = { role: 'user', content: userInput };
                 const currentMessages = prev.activeDesignSession?.messages || [];
                 const updatedSession = { ...prev.activeDesignSession!, messages: [...currentMessages, optimisticMessage] };
                 return { ...prev, status: 'loading', activeDesignSession: updatedSession };
             } else {
+                const optimisticMessage = { role: 'user', content: userInput };
                 const optimisticMessages = [...prev.messages, optimisticMessage];
                 return { ...prev, status: 'loading', messages: optimisticMessages, renderState: { ...prev.renderState, displayMessages: optimisticMessages } };
             }
@@ -134,6 +135,16 @@ class AppStore {
         }));
     }
 
+    public initializeNewDesignSession(newSession: DesignSession) {
+        this.setState(prev => ({
+            ...prev,
+            designSessions: [newSession, ...prev.designSessions],
+            activeDesignSession: newSession,
+            view: 'team_builder',
+            status: 'idle',
+        }));
+    }
+
     public updateTeamBuilderState(updatedSession: DesignSession) {
         this.setState(prev => {
             const sessionExists = prev.designSessions.some(ds => ds.designSessionId === updatedSession.designSessionId);
@@ -152,11 +163,8 @@ class AppStore {
             activeDesignSession: null,
             activeTeam: newTeam,
             view: 'team_management',
-            // --- THE FIX ---
-            // 1. Reset the dependencies of the old team.
             agents: [],
             chatHistory: [],
-            // 2. Set status to 'loading' to trigger the data fetch effect in useAppLogic.
             status: 'loading'
         }));
     }
