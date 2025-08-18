@@ -12,7 +12,7 @@ import { parseAssistantResponse } from "@/lib/utils";
 
 export const useAppLogic = () => {
     const state = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
-    const backendApiUrl = 'https://idx-ai-designer-backend-82522688-534939227554.australia-southeast1.run.app';
+    const backendApiUrl = '/api';
 
     const safeFetch = useCallback(async (url: string, options: RequestInit = {}): Promise<{ success: boolean; status: number; body: any } | null> => {
         try {

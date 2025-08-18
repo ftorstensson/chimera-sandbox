@@ -7,7 +7,20 @@
       "**/node_modules/**"
     ],
     "frameworksBackend": {
-      "region": "us-central1"
-    }
+      "region": "australia-southeast1"
+    },
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "idx-vibe-agent-backend-38793350",
+          "region": "australia-southeast1"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
   }
 }
