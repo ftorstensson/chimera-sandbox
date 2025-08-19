@@ -1,24 +1,24 @@
 // src/components/ChatSandbox.tsx
-// v1.4.1 - FIX: Correct a syntax error in the React import statement.
+// v2.0 - FEAT: Implement the full, end-to-end Chimera Protocol.
 
 'use client';
 
-// Step 1: Corrected React import statement
 import React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 
 // --- Types ---
 type Message = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  status?: 'sending' | 'failed';
+  status?: 'sending' | 'failed' | 'thinking';
   timestamp?: any;
+  tempId?: string; // Add tempId for reconciliation
 };
 
-// --- Styles (unchanged) ---
+// --- Styles (with additions for thinking dots) ---
 const sandboxContainerStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -54,6 +54,7 @@ const messageBubbleStyle = (role: 'user' | 'assistant'): React.CSSProperties => 
   color: '#ffffff',
   alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
   backgroundColor: role === 'user' ? '#007bff' : '#3a3a3a',
+  wordWrap: 'break-word',
 });
 
 const statusTextStyle: React.CSSProperties = {
@@ -91,33 +92,47 @@ const sendButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+const thinkingIndicatorStyle: React.CSSProperties = {
+    alignSelf: 'flex-start',
+    color: '#cccccc',
+    fontStyle: 'italic',
+    padding: '0.8rem 1rem',
+};
+
 // --- The Sandbox Component ---
 const ChatSandbox = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
-  const [chatId, setChatId] = useState('HgvBJbizAVR868wUU7s7');
+  const [chatId] = useState('HgvBJbizAVR868wUU7s7');
+  const [isAiThinking, setIsAiThinking] = useState(false); // State for the "thinking dots"
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isAiThinking]);
   
+  // Real-time listener for reading and reconciling messages
   useEffect(() => {
     if (!chatId) return;
 
-    const messagesCollectionPath = `sandbox_chats/${chatId}/messages`;
-    const messagesCollectionRef = collection(db, messagesCollectionPath);
+    const messagesCollectionRef = collection(db, `sandbox_chats/${chatId}/messages`);
     const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const messagesFromFirestore: Message[] = [];
+      let aiIsCurrentlyThinking = false;
+      
       querySnapshot.forEach((doc) => {
-        messagesFromFirestore.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Message);
+        const data = doc.data();
+        // Check for the AI's placeholder message
+        if (data.role === 'assistant' && data.content === '...') {
+            aiIsCurrentlyThinking = true;
+        }
+        messagesFromFirestore.push({ id: doc.id, ...data } as Message);
       });
+      
       setMessages(messagesFromFirestore);
+      setIsAiThinking(aiIsCurrentlyThinking); // Update the thinking status
     }, (error) => {
       console.error("Firebase onSnapshot Error:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
     });
@@ -126,23 +141,37 @@ const ChatSandbox = () => {
   }, [chatId]);
 
   const handleSend = async () => {
-    if (!userInput.trim()) return;
+    if (!userInput.trim() || isAiThinking) return; // Prevent sending while AI is thinking
 
-    const messagesCollectionPath = `sandbox_chats/${chatId}/messages`;
-    const messagesCollectionRef = collection(db, messagesCollectionPath);
+    const tempId = crypto.randomUUID();
+    const userMessageContent = userInput.trim();
+    setUserInput(''); // Clear input immediately
 
+    // Optimistic UI Update: We will write directly to Firestore which the listener will catch.
+    const messagesCollectionRef = collection(db, `sandbox_chats/${chatId}/messages`);
     const newMessage = {
+      tempId: tempId,
       role: 'user',
-      content: userInput.trim(),
+      content: userMessageContent,
       timestamp: serverTimestamp(),
+      status: 'sending' // We can use this status in the UI if we want
     };
-    
-    setUserInput('');
     
     try {
       await addDoc(messagesCollectionRef, newMessage);
+
+      // Trigger the backend AI. This happens in the background.
+      await fetch('/api/sandbox-trigger-ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+              chatId: chatId,
+              userInput: userMessageContent
+          }),
+      });
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error sending message or triggering AI:", error);
+      // Optional: Update the message status to 'failed' in Firestore
     }
   };
 
@@ -153,15 +182,14 @@ const ChatSandbox = () => {
       </header>
       <main style={messageAreaStyle}>
         {messages.map((msg) => (
-          <div key={msg.id} style={messageBubbleStyle(msg.role)}>
+          <div key={msg.tempId || msg.id} style={messageBubbleStyle(msg.role)}>
             {msg.content}
-            {msg.status && (
-              <p style={{ ...statusTextStyle, color: msg.status === 'failed' ? '#ff4d4d' : '#cccccc' }}>
-                {msg.status}...
-              </p>
+            {msg.status === 'sending' && (
+              <p style={statusTextStyle}>Sending...</p>
             )}
           </div>
         ))}
+        {isAiThinking && <div style={thinkingIndicatorStyle}>AI is thinking...</div>}
         <div ref={messagesEndRef} />
       </main>
       <footer style={inputAreaStyle}>
@@ -172,8 +200,9 @@ const ChatSandbox = () => {
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          disabled={isAiThinking} // Disable input while AI is thinking
         />
-        <button style={sendButtonStyle} onClick={handleSend}>
+        <button style={sendButtonStyle} onClick={handleSend} disabled={isAiThinking}>
           Send
         </button>
       </footer>
