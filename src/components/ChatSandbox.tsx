@@ -1,11 +1,13 @@
 // src/components/ChatSandbox.tsx
-// v1.3 - FEAT: Implement JSON error logging for better diagnostics.
+// v1.4.1 - FIX: Correct a syntax error in the React import statement.
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+// Step 1: Corrected React import statement
+import React from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Types ---
 type Message = {
@@ -13,6 +15,7 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   status?: 'sending' | 'failed';
+  timestamp?: any;
 };
 
 // --- Styles (unchanged) ---
@@ -93,7 +96,12 @@ const ChatSandbox = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
   const [chatId, setChatId] = useState('HgvBJbizAVR868wUU7s7');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+  
   useEffect(() => {
     if (!chatId) return;
 
@@ -109,23 +117,33 @@ const ChatSandbox = () => {
           ...doc.data(),
         } as Message);
       });
-      console.log("Received update from Firestore:", messagesFromFirestore);
       setMessages(messagesFromFirestore);
-    }, 
-    (error) => {
-      // --- THIS IS THE IMPROVED LOGGING ---
-      console.error(
-        "Firebase onSnapshot Error:", 
-        JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-      );
+    }, (error) => {
+      console.error("Firebase onSnapshot Error:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
     });
 
     return () => unsubscribe();
   }, [chatId]);
 
-  const handleSend = () => {
-    console.log('Sending message:', userInput);
+  const handleSend = async () => {
+    if (!userInput.trim()) return;
+
+    const messagesCollectionPath = `sandbox_chats/${chatId}/messages`;
+    const messagesCollectionRef = collection(db, messagesCollectionPath);
+
+    const newMessage = {
+      role: 'user',
+      content: userInput.trim(),
+      timestamp: serverTimestamp(),
+    };
+    
     setUserInput('');
+    
+    try {
+      await addDoc(messagesCollectionRef, newMessage);
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
   };
 
   return (
@@ -144,6 +162,7 @@ const ChatSandbox = () => {
             )}
           </div>
         ))}
+        <div ref={messagesEndRef} />
       </main>
       <footer style={inputAreaStyle}>
         <input
