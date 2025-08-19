@@ -1,28 +1,22 @@
-// src/components/ChatSandbox.tsx 
+// src/components/ChatSandbox.tsx
 
-'use client'; // This directive is necessary for components that use React hooks
+'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+// Step 1: Import Firebase essentials
+import { db } from '@/lib/firebase';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
-// --- Mock Data and Types ---
-// We will replace this with our real types and data from Firestore later.
+// --- Types ---
+// This now represents the structure of our live Firestore documents
 type Message = {
-  id: string;
+  id: string; // The document ID from Firestore
   role: 'user' | 'assistant';
   content: string;
   status?: 'sending' | 'failed';
 };
 
-const mockMessages: Message[] = [
-  { id: '1', role: 'assistant', content: 'Welcome to the Chimera Sandbox. This is a clean-room environment for building our V2 chat engine.' },
-  { id: '2', role: 'user', content: 'This is a message from the user.' },
-  { id: '3', role: 'assistant', content: 'This is a response from the assistant.'},
-  { id: '4', role: 'user', content: 'This is a message with a "failed" status.', status: 'failed' },
-  { id: '5', role: 'user', content: 'This is a message with a "sending" status.', status: 'sending' },
-];
-
-// --- Styles ---
-// Comprehensive styling to create a realistic chat UI within our sandbox.
+// --- Styles (unchanged) ---
 const sandboxContainerStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -97,18 +91,46 @@ const sendButtonStyle: React.CSSProperties = {
 
 // --- The Sandbox Component ---
 const ChatSandbox = () => {
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  // State will now be populated by our live listener
+  const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
+  // Step 2: Hardcode the Test Chat ID
+  const [chatId, setChatId] = useState('HgvBJbizAVR868wUU7s7'); // Replace with YOUR chat document ID if different
+
+  // Step 3, 4, 5, 6: Establish the real-time listener
+  useEffect(() => {
+    if (!chatId) return;
+
+    // We must have the exact path to the subcollection
+    const messagesCollectionPath = `sandbox_chats/${chatId}/messages`;
+    const messagesCollectionRef = collection(db, messagesCollectionPath);
+    
+    // The query now includes ordering
+    const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
+
+    // onSnapshot is the real-time listener
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const messagesFromFirestore: Message[] = [];
+      querySnapshot.forEach((doc) => {
+        messagesFromFirestore.push({
+          id: doc.id,
+          ...doc.data(),
+        } as Message);
+      });
+      console.log("Received update from Firestore:", messagesFromFirestore);
+      setMessages(messagesFromFirestore);
+    }, (error) => {
+      console.error("Error listening to Firestore:", error);
+    });
+
+    // Cleanup function to prevent memory leaks
+    return () => unsubscribe();
+
+  }, [chatId]);
 
   const handleSend = () => {
-    if (!userInput.trim()) return;
-    const newMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: userInput,
-      status: 'sending',
-    };
-    setMessages(prev => [...prev, newMessage]);
+    // We will implement the "write" logic in the next step.
+    console.log('Sending message:', userInput);
     setUserInput('');
   };
 
