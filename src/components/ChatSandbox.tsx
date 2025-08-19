@@ -1,16 +1,15 @@
 // src/components/ChatSandbox.tsx
+// v1.3 - FEAT: Implement JSON error logging for better diagnostics.
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// Step 1: Import Firebase essentials
 import { db } from '@/lib/firebase';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 // --- Types ---
-// This now represents the structure of our live Firestore documents
 type Message = {
-  id: string; // The document ID from Firestore
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   status?: 'sending' | 'failed';
@@ -91,24 +90,17 @@ const sendButtonStyle: React.CSSProperties = {
 
 // --- The Sandbox Component ---
 const ChatSandbox = () => {
-  // State will now be populated by our live listener
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
-  // Step 2: Hardcode the Test Chat ID
-  const [chatId, setChatId] = useState('HgvBJbizAVR868wUU7s7'); // Replace with YOUR chat document ID if different
+  const [chatId, setChatId] = useState('HgvBJbizAVR868wUU7s7');
 
-  // Step 3, 4, 5, 6: Establish the real-time listener
   useEffect(() => {
     if (!chatId) return;
 
-    // We must have the exact path to the subcollection
     const messagesCollectionPath = `sandbox_chats/${chatId}/messages`;
     const messagesCollectionRef = collection(db, messagesCollectionPath);
-    
-    // The query now includes ordering
     const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
 
-    // onSnapshot is the real-time listener
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const messagesFromFirestore: Message[] = [];
       querySnapshot.forEach((doc) => {
@@ -119,17 +111,19 @@ const ChatSandbox = () => {
       });
       console.log("Received update from Firestore:", messagesFromFirestore);
       setMessages(messagesFromFirestore);
-    }, (error) => {
-      console.error("Error listening to Firestore:", error);
+    }, 
+    (error) => {
+      // --- THIS IS THE IMPROVED LOGGING ---
+      console.error(
+        "Firebase onSnapshot Error:", 
+        JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      );
     });
 
-    // Cleanup function to prevent memory leaks
     return () => unsubscribe();
-
   }, [chatId]);
 
   const handleSend = () => {
-    // We will implement the "write" logic in the next step.
     console.log('Sending message:', userInput);
     setUserInput('');
   };
